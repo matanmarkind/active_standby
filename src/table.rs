@@ -19,6 +19,7 @@ pub struct Table<T> {
 }
 
 impl<T> Table<T> {
+    // Return the peices needed by a WriteGuard.
     pub fn write_guard(&mut self) -> (RwLockWriteGuard<'_, T>, &mut AtomicBool) {
         let standby_table = if self.is_table0_active.load(Ordering::Relaxed) {
             self.table1.write()
@@ -28,7 +29,14 @@ impl<T> Table<T> {
 
         (standby_table.unwrap(), &mut self.is_table0_active)
     }
+    pub fn swap_active_and_standby(&mut self) {
+        self.is_table0_active.store(
+            !self.is_table0_active.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
+    }
 
+    // Return the pieces needed by a ReadGuard.
     pub fn read_guard(&self) -> RwLockReadGuard<'_, T> {
         if self.is_table0_active.load(Ordering::Relaxed) {
             self.table0.read().unwrap()
@@ -48,14 +56,5 @@ where
             table1: RwLock::new(t),
             is_table0_active: AtomicBool::new(true),
         }
-    }
-}
-
-impl<T> Table<T>
-where
-    T: Default + Clone,
-{
-    pub fn default() -> Table<T> {
-        Self::new_from_empty(T::default())
     }
 }
