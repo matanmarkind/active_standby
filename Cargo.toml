@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Matan Markind <matan.markind@gmail.com>"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
+description = "A concurrency primitive for high concurrency reads with a single writer."
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
