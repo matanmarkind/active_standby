@@ -6,9 +6,9 @@ pub struct Reader<T> {
     table: Arc<Table<T>>,
 }
 
-// Reader is the class used to read from an active_standby table. It's use is
-// just like reading from an RwLock, but with the promise that there is never
-// contention with a Writer.
+/// Reader is the class used to read from an active_standby table. It's use is
+/// just like reading from an RwLock, but with the promise that there is never
+/// contention with a Writer.
 impl<T> Reader<T> {
     // This is effectively a crate private function since Table is a private
     // type.

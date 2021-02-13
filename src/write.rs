@@ -18,9 +18,8 @@ pub trait UpdateTables<T> {
 }
 
 /// Writer is the class used to control the underlying tables. It is neither
-/// Send nor Sync (although open to discussion around making it Send). If you
-/// want multithreaded access to writing you must put it behind a lock of some
-/// sort.
+/// Send nor Sync. If you want multithreaded access to writing you must put it
+/// behind a lock.
 ///
 /// In order to interact with the underlying tables you must create a
 /// WriteGuard.
@@ -31,18 +30,18 @@ pub trait UpdateTables<T> {
 pub struct Writer<T> {
     table: Arc<Table<T>>,
 
-    // Log of operations to be performed on the active table. This gets played
-    // on the active table when creating a WriteGuard as an optimization. Since
-    // when a WriteGuard is dropped, we swap_active_and_standby, there will have
-    // been time before creating the new WriteGuard for all the readers to exit
-    // the new standby table, alleviating thread contention.
-    //
-    // Also holds a bool for 'is_ok' as a sanity check that if the initial
-    // Result was Ok/NotOk the replay was too.
-    //
-    // TODO: consider holding a vec of (op, res) and comparing that each result
-    // is identical on replay. This should block 1.0 since it will likely break
-    // usages since now the return type will have to be PartialEq.
+    /// Log of operations to be performed on the active table. This gets played
+    /// on the standby table when creating a WriteGuard as an optimization.
+    /// Since when a WriteGuard is dropped, we swap the active and standby
+    /// tables, by waiting until the next time a WriteGuard is created we give
+    /// the readers time to switch to reading from the new active_table. This
+    /// hopefully reduces contention when the writer tries to lock the new
+    /// standby_table.
+    ///
+    /// We could make the Writer Send + Sync if we instead gave up on this
+    /// optimization and moved ops_to_replay into WriteGuard, and had WriteGuard
+    /// perform these ops on Drop. I think this optimization is worth the need
+    /// for the user to wrap Writer in a Mutex though.
     ops_to_replay: Vec<Box<dyn UpdateTables<T>>>,
 }
 
@@ -108,11 +107,11 @@ impl<T> Writer<T> {
 /// generate 1 at a time, which is enforced by the borrow checker on creation.
 ///
 /// Unlike an RwLockWriteGuard, we don't mutate the underlying data in a
-/// transparent manner. When dereferencing a WriteGuard we see the state of the
-/// standby_table, not the active_table which the Readers dereference. This is
-/// because we cannot allow the user to directly mutate the unerlying data.
-/// Instead the user has to pass in Operations, so that the Writer can make sure
-/// these are performed on both the active and standby tables.
+/// transparent manner. Instead the caller must pass in a function which
+/// implements the UpdateTables trait to mutate the underlying data.
+///
+/// When dereferencing a WriteGuard we see the state of the standby_table, not
+/// the active_table which the Readers dereference. 
 ///
 /// Upon Drop, a WriteGuard automatically publishes the changes to the Readers,
 /// by swapping the active and standby tables. The updates are only performed on
@@ -226,6 +225,7 @@ mod test {
             assert_eq!(wg.len(), 1);
             assert_eq!(reader.read().len(), 0);
         }
+
         // When the write guard is dropped it publishes the changes to the readers.
         assert_eq!(*reader.read(), vec![2]);
     }
@@ -291,7 +291,8 @@ mod test {
             }
 
             // Show multiple readers in multiple threads.
-            let handler = thread::spawn(move || while *reader.read() != vec![2, 3, 5] {});
+            let reader2 = Reader::clone(&reader);
+            let handler = thread::spawn(move || while *reader2.read() != vec![2, 3, 5] {});
             assert!(handler.join().is_ok());
         });
 

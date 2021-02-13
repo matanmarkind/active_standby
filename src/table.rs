@@ -6,11 +6,11 @@ pub struct Table<T> {
     // Possible alternative design is to stop having the bool, and instead have
     // just the 2 tables as AtomicPtr, and WriteGuard will swap the pointers.
     // The tradeoff I am most interested in is the performance of read_guard.
-    // This is a tradeoff between branching and indirection. I lean now towards
-    // branching since CPUs seem to be quite fast and other examples indicate to
-    // me that this could be better (aka C++ std::string switched from just
-    // following a pointer to storing short strings locally
-    // https://www.youtube.com/watch?v=kPR8h4-qZdk)
+    // This is a tradeoff between branching and indirection (aka CPU speed v.
+    // Memory loading speed). I lean now towards branching since CPUs seem to be
+    // quite fast and other examples indicate to me that this could be better
+    // (e.g. C++ std::string switched from just following a pointer to storing
+    // short strings locally https://www.youtube.com/watch?v=kPR8h4-qZdk)
     table0: RwLock<T>,
     table1: RwLock<T>,
 
