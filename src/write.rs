@@ -1,13 +1,20 @@
 use crate::read::Reader;
 use crate::table::Table;
-use std::any::Any;
-use std::error::Error;
 use std::sync;
 use sync::atomic::{AtomicBool, Ordering};
 use sync::{Arc, RwLockWriteGuard};
 
-type UpdateOpResult = Result<Box<dyn Any>, Box<dyn Error>>;
-type UpdateOpT<T> = Box<dyn Fn(&mut T) -> UpdateOpResult>;
+/// This is the trait for functions that update the underlying tables. This is
+/// the most risky part that users will have to take care with. Specifically to
+/// make sure that both apply_first and apply_second perform identical changes
+/// on the 2 tables.
+pub trait UpdateTables<T> {
+    fn apply_first(&mut self, table: &mut T) -> Box<dyn std::any::Any>;
+
+    fn apply_second(mut self: Box<Self>, table: &mut T) -> Box<dyn std::any::Any> {
+        Self::apply_first(&mut self, table)
+    }
+}
 
 /// Writer is the class used to control the underlying tables. It is neither
 /// Send nor Sync (although open to discussion around making it Send). If you
@@ -35,7 +42,7 @@ pub struct Writer<T> {
     // TODO: consider holding a vec of (op, res) and comparing that each result
     // is identical on replay. This should block 1.0 since it will likely break
     // usages since now the return type will have to be PartialEq.
-    ops_to_replay: Vec<(UpdateOpT<T>, bool)>,
+    ops_to_replay: Vec<Box<dyn UpdateTables<T>>>,
 }
 
 impl<T> Writer<T>
@@ -59,19 +66,6 @@ where
     }
 }
 
-/// Make sure to publish any remaning changes to the readers.
-impl<T> Drop for Writer<T> {
-    fn drop(&mut self) {
-        // Just swapping the tables is enough. Since we are dropping the Writer,
-        // we don't need to update the new standby table from 'ops_to_replay'
-        // because without a writer the new standby table becomes unreachable.
-        let table = unsafe {
-            std::mem::transmute::<*const Table<T>, &mut Table<T>>(Arc::as_ptr(&self.table))
-        };
-        table.swap_active_and_standby();
-    }
-}
-
 impl<T> Writer<T> {
     /// Create a WriteGuard to allow users to update the the data. There will
     /// only be 1 WriteGuard at a time.
@@ -92,9 +86,8 @@ impl<T> Writer<T> {
         // Replay all ops on the standby table. This will hang until all readers
         // have returned their read guard.
         let (mut standby_table, is_table0_active) = table.write_guard();
-        for (func, was_ok) in self.ops_to_replay.iter() {
-            let res = func(&mut standby_table);
-            assert_eq!(res.is_ok(), *was_ok);
+        for op in self.ops_to_replay.drain(..) {
+            op.apply_second(&mut standby_table);
         }
         self.ops_to_replay.clear();
 
@@ -121,32 +114,32 @@ impl<T> Writer<T> {
 /// these are performed on both the active and standby tables.
 ///
 /// Upon Drop, a WriteGuard automatically publishes the changes to the Readers,
-/// by swapping the active and standby tables. The updates are only then
-/// performed on the new standby table the next time a WriteGuard is created.
-/// This is to minimize thread contention. That way Readers will have a chance
-/// to switch to reading from the new active table without us hanging trying to
-/// WriteLock the new standby table.
+/// by swapping the active and standby tables. The updates are only performed on
+/// the new standby table the next time a WriteGuard is created. This is to
+/// minimize thread contention. That way Readers will have a chance to switch to
+/// reading from the new active table before trying to WriteLock the new standby
+/// table.
 pub struct WriteGuard<'w, T> {
     standby_table: RwLockWriteGuard<'w, T>,
 
     // Record the ops that were applied to standby_table to be replayed the next
     // time we create a WriteGuard.
-    ops_to_replay: &'w mut Vec<(UpdateOpT<T>, bool)>,
+    ops_to_replay: &'w mut Vec<Box<dyn UpdateTables<T>>>,
 
     // Updated at drop.
     is_table0_active: &'w mut AtomicBool,
 }
 
 impl<'w, T> WriteGuard<'w, T> {
-    /// This is where the users face the complexity of this struc, and where it
+    /// This is where the users face the complexity of this struct, and where it
     /// most differs from a simple RwLock. Users must provide functions which
     /// update the underlying table, instead of directly touching them.
     ///
     /// It is critical the 'func' be deterministic so that it will perform the
     /// same action on both copies of the table.
-    pub fn apply(&mut self, func: UpdateOpT<T>) -> UpdateOpResult {
-        let res = func(&mut self.standby_table);
-        self.ops_to_replay.push((func, res.is_ok()));
+    pub fn update_tables(&mut self, mut op: Box<dyn UpdateTables<T>>) -> Box<dyn std::any::Any> {
+        let res = op.apply_first(&mut self.standby_table);
+        self.ops_to_replay.push(op);
         res
     }
 }
@@ -155,9 +148,11 @@ impl<'w, T> WriteGuard<'w, T> {
 /// don't update the new standby table until a new WriteGuard is created.
 impl<'w, T> Drop for WriteGuard<'w, T> {
     fn drop(&mut self) {
-        // If there were multiple writers could there be a race between loading
-        // and storing? Shouldn't be germane since Writer should be Send, but
-        // not Sync and there should only be 1.
+        // Make sure to drop the write guard first to guarantee that readers
+        // never face contention.
+        drop(&mut self.standby_table);
+
+        // Swap the active and standby tables.
         self.is_table0_active.store(
             !self.is_table0_active.load(Ordering::Relaxed),
             Ordering::Relaxed,
@@ -165,6 +160,9 @@ impl<'w, T> Drop for WriteGuard<'w, T> {
     }
 }
 
+/// Dereferencing the WriteGuard will let you see the state of the
+/// standby_table. If you want to inspect the state of the active_table you must
+/// go through a Reader.
 impl<'w, T> std::ops::Deref for WriteGuard<'w, T> {
     type Target = RwLockWriteGuard<'w, T>;
     fn deref(&self) -> &Self::Target {
@@ -176,6 +174,32 @@ impl<'w, T> std::ops::Deref for WriteGuard<'w, T> {
 mod test {
     use super::*;
     use std::thread;
+
+    struct PushVec<T> {
+        value: T,
+    }
+    impl<T> UpdateTables<Vec<T>> for PushVec<T>
+    where
+        T: Clone,
+    {
+        fn apply_first(&mut self, table: &mut Vec<T>) -> Box<dyn std::any::Any> {
+            table.push(self.value.clone());
+            Box::new(())
+        }
+        fn apply_second(self: Box<Self>, table: &mut Vec<T>) -> Box<dyn std::any::Any> {
+            table.push(self.value); // Move the value instead of cloning.
+            Box::new(())
+        }
+    }
+
+    struct PopVec {}
+    impl<T> UpdateTables<Vec<T>> for PopVec {
+        fn apply_first(&mut self, table: &mut Vec<T>) -> Box<dyn std::any::Any> {
+            table.pop();
+            Box::new(())
+        }
+    }
+
     #[test]
     fn one_guard() {
         let mut writer = Writer::<Vec<i32>>::default();
@@ -189,82 +213,19 @@ mod test {
     }
 
     #[test]
-    fn apply_update() {
-        type Table = Box<Vec<i32>>;
-        let mut writer = Writer::<Table>::default();
-        let mut wg = writer.write();
-        let res = wg.apply(Box::new(|vec: &mut Table| {
-            vec.push(2);
-            Ok(Box::new(()))
-        }));
-        assert!(res.is_ok());
-    }
-
-    #[test]
     fn publish_update() {
-        type Table = Vec<Box<i32>>;
-        let mut writer = Writer::<Table>::default();
+        let mut writer = Writer::<Vec<i32>>::default();
         let reader = writer.new_reader();
         assert_eq!(reader.read().len(), 0);
 
         {
             let mut wg = writer.write();
-            let res = wg.apply(Box::new(|vec: &mut Table| {
-                vec.push(Box::new(2));
-                Ok(Box::new(()))
-            }));
-            assert!(res.is_ok());
+            wg.update_tables(Box::new(PushVec { value: 2 }));
             assert_eq!(wg.len(), 1);
             assert_eq!(reader.read().len(), 0);
         }
         // When the write guard is dropped it publishes the changes to the readers.
-        assert_eq!(*reader.read(), vec![Box::new(2)]);
-    }
-
-    #[test]
-    fn multi_publish() {
-        type Table = Vec<i32>;
-        let mut writer = Writer::<Table>::default();
-
-        {
-            assert!(writer
-                .write()
-                .apply(Box::new(|vec: &mut Table| {
-                    vec.push(2);
-                    Ok(Box::new(()))
-                }))
-                .is_ok());
-        }
-        {
-            assert!(writer
-                .write()
-                .apply(Box::new(|vec: &mut Table| {
-                    vec.push(4);
-                    Ok(Box::new(()))
-                }))
-                .is_ok());
-        }
-        {
-            assert!(writer
-                .write()
-                .apply(Box::new(|vec: &mut Table| {
-                    vec.push(6);
-                    Ok(Box::new(()))
-                }))
-                .is_ok());
-        }
-        {
-            assert!(writer
-                .write()
-                .apply(Box::new(|vec: &mut Table| {
-                    vec.push(8);
-                    Ok(Box::new(()))
-                }))
-                .is_ok());
-        }
-
-        let reader = writer.new_reader();
-        assert_eq!(*reader.read(), vec![2, 4, 6, 8]);
+        assert_eq!(*reader.read(), vec![2]);
     }
 
     #[test]
@@ -272,48 +233,95 @@ mod test {
         let mut writer = Writer::<Vec<i32>>::default();
         {
             let mut wg = writer.write();
-            assert!(wg
-                .apply(Box::new(|vec: &mut Vec<i32>| {
-                    vec.push(2);
-                    Ok(Box::new(()))
-                }))
-                .is_ok());
-            assert!(wg
-                .apply(Box::new(|vec: &mut Vec<i32>| {
-                    vec.push(4);
-                    Ok(Box::new(()))
-                }))
-                .is_ok());
-            assert!(wg
-                .apply(Box::new(|vec: &mut Vec<i32>| {
-                    vec.pop();
-                    Ok(Box::new(()))
-                }))
-                .is_ok());
+            wg.update_tables(Box::new(PushVec { value: 2 }));
+            wg.update_tables(Box::new(PushVec { value: 3 }));
+            wg.update_tables(Box::new(PushVec { value: 4 }));
+            wg.update_tables(Box::new(PopVec {}));
+            wg.update_tables(Box::new(PushVec { value: 5 }));
         }
         let reader = writer.new_reader();
-        assert_eq!(*reader.read(), vec![2]);
+        assert_eq!(*reader.read(), vec![2, 3, 5]);
+    }
+
+    #[test]
+    fn multi_publish() {
+        let mut writer = Writer::<Vec<Box<i32>>>::default();
+        {
+            let mut wg = writer.write();
+            wg.update_tables(Box::new(PushVec { value: Box::new(2) }));
+            wg.update_tables(Box::new(PushVec { value: Box::new(3) }));
+            wg.update_tables(Box::new(PopVec {}));
+            wg.update_tables(Box::new(PushVec { value: Box::new(5) }));
+        }
+        let reader = writer.new_reader();
+        assert_eq!(*reader.read(), vec![Box::new(2), Box::new(5)]);
+
+        {
+            let mut wg = writer.write();
+            wg.update_tables(Box::new(PushVec { value: Box::new(9) }));
+            wg.update_tables(Box::new(PushVec { value: Box::new(8) }));
+            wg.update_tables(Box::new(PopVec {}));
+            wg.update_tables(Box::new(PushVec { value: Box::new(7) }));
+        }
+        let reader = writer.new_reader();
+        assert_eq!(
+            *reader.read(),
+            vec![Box::new(2), Box::new(5), Box::new(9), Box::new(7)]
+        );
+
+        {
+            let mut wg = writer.write();
+            wg.update_tables(Box::new(PopVec {}));
+        }
+        let reader = writer.new_reader();
+        assert_eq!(*reader.read(), vec![Box::new(2), Box::new(5), Box::new(9)]);
     }
 
     #[test]
     fn multi_thread() {
         let mut writer = Writer::<Vec<i32>>::default();
         let reader = writer.new_reader();
-        let handler = thread::spawn(move || while *reader.read() != vec![1, 2, 3] {});
+        let handler = thread::spawn(move || {
+            while *reader.read() != vec![2, 3, 5] {
+                // Since commits oly happen when a WriteGuard is dropped no reader
+                // will see this state.
+                assert_ne!(*reader.read(), vec![2, 3, 4]);
+            }
+
+            // Show multiple readers in multiple threads.
+            let handler = thread::spawn(move || while *reader.read() != vec![2, 3, 5] {});
+            assert!(handler.join().is_ok());
+        });
 
         {
             let mut wg = writer.write();
-            assert!(wg
-                .apply(Box::new(|vec: &mut Vec<i32>| {
-                    vec.push(1);
-                    vec.push(2);
-                    vec.push(3);
-                    Ok(Box::new(()))
-                }))
-                .is_ok());
+            wg.update_tables(Box::new(PushVec { value: 2 }));
+            wg.update_tables(Box::new(PushVec { value: 3 }));
+            wg.update_tables(Box::new(PushVec { value: 4 }));
+            wg.update_tables(Box::new(PopVec {}));
+            wg.update_tables(Box::new(PushVec { value: 5 }));
         }
 
         assert!(handler.join().is_ok());
     }
-    // multi_reader
+
+    #[test]
+    fn writer_dropped() {
+        // Show that when the Writer is dropped, Readers remain valid.
+        let reader;
+        {
+            let mut writer = Writer::<Vec<i32>>::default();
+            reader = writer.new_reader();
+
+            {
+                let mut wg = writer.write();
+                wg.update_tables(Box::new(PushVec { value: 2 }));
+                wg.update_tables(Box::new(PushVec { value: 3 }));
+                wg.update_tables(Box::new(PushVec { value: 4 }));
+                wg.update_tables(Box::new(PopVec {}));
+                wg.update_tables(Box::new(PushVec { value: 5 }));
+            }
+        }
+        assert_eq!(*reader.read(), vec![2, 3, 5]);
+    }
 }

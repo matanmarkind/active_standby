@@ -9,6 +9,14 @@ use sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 // 'standby_table' when we try to create a new WriteGuard.
 
 pub struct Table<T> {
+    // Possible alternative design is to stop having the bool, and instead have
+    // just the 2 tables as AtomicPtr, and WriteGuard will swap the pointers.
+    // The tradeoff I am most interested in is the performance of read_guard.
+    // This is a tradeoff between branching and indirection. I lean now towards
+    // branching since CPUs seem to be quite fast and other examples indicate to
+    // me that this could be better (aka C++ std::string switched from just
+    // following a pointer to storing short strings locally
+    // https://www.youtube.com/watch?v=kPR8h4-qZdk)
     table0: RwLock<T>,
     table1: RwLock<T>,
 
@@ -28,12 +36,6 @@ impl<T> Table<T> {
         };
 
         (standby_table.unwrap(), &mut self.is_table0_active)
-    }
-    pub fn swap_active_and_standby(&mut self) {
-        self.is_table0_active.store(
-            !self.is_table0_active.load(Ordering::Relaxed),
-            Ordering::Relaxed,
-        );
     }
 
     // Return the pieces needed by a ReadGuard.

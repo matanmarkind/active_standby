@@ -24,3 +24,12 @@ mod write;
 // Public exports.
 pub use read::Reader;
 pub use write::{WriteGuard, Writer};
+
+// TODO: define Rwock types internally.
+//
+// TODO: drop(writeguard) before swapping tables.
+//
+// TODO: Switch from Fn to internal trait of apply_first(&mut self),
+// apply_second(self).
+//
+// TODO: Return type of just <dyn Any>, not result.
