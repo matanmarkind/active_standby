@@ -1,12 +1,6 @@
+use crate::types::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::sync;
 use sync::atomic::{AtomicBool, Ordering};
-use sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-
-// TODO: Consider using crossbeam sharded RwLock since it's optimized for fast
-// reads. Since reads should never be contested a faster read implementation
-// seems good. The slower write lock shouldn't be an issue since the slowness on
-// writes that I am worried about is due to reader threads still holding the new
-// 'standby_table' when we try to create a new WriteGuard.
 
 pub struct Table<T> {
     // Possible alternative design is to stop having the bool, and instead have

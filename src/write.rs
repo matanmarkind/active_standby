@@ -1,17 +1,18 @@
 use crate::read::Reader;
 use crate::table::Table;
-use std::sync;
-use sync::atomic::{AtomicBool, Ordering};
-use sync::{Arc, RwLockWriteGuard};
+use crate::types::RwLockWriteGuard;
+use std::any::Any;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 /// This is the trait for functions that update the underlying tables. This is
 /// the most risky part that users will have to take care with. Specifically to
 /// make sure that both apply_first and apply_second perform identical changes
 /// on the 2 tables.
 pub trait UpdateTables<T> {
-    fn apply_first(&mut self, table: &mut T) -> Box<dyn std::any::Any>;
+    fn apply_first(&mut self, table: &mut T) -> Box<dyn Any>;
 
-    fn apply_second(mut self: Box<Self>, table: &mut T) -> Box<dyn std::any::Any> {
+    fn apply_second(mut self: Box<Self>, table: &mut T) -> Box<dyn Any> {
         Self::apply_first(&mut self, table)
     }
 }
@@ -137,7 +138,7 @@ impl<'w, T> WriteGuard<'w, T> {
     ///
     /// It is critical the 'func' be deterministic so that it will perform the
     /// same action on both copies of the table.
-    pub fn update_tables(&mut self, mut op: Box<dyn UpdateTables<T>>) -> Box<dyn std::any::Any> {
+    pub fn update_tables(&mut self, mut op: Box<dyn UpdateTables<T>>) -> Box<dyn Any> {
         let res = op.apply_first(&mut self.standby_table);
         self.ops_to_replay.push(op);
         res
@@ -182,11 +183,11 @@ mod test {
     where
         T: Clone,
     {
-        fn apply_first(&mut self, table: &mut Vec<T>) -> Box<dyn std::any::Any> {
+        fn apply_first(&mut self, table: &mut Vec<T>) -> Box<dyn Any> {
             table.push(self.value.clone());
             Box::new(())
         }
-        fn apply_second(self: Box<Self>, table: &mut Vec<T>) -> Box<dyn std::any::Any> {
+        fn apply_second(self: Box<Self>, table: &mut Vec<T>) -> Box<dyn Any> {
             table.push(self.value); // Move the value instead of cloning.
             Box::new(())
         }
@@ -194,7 +195,7 @@ mod test {
 
     struct PopVec {}
     impl<T> UpdateTables<Vec<T>> for PopVec {
-        fn apply_first(&mut self, table: &mut Vec<T>) -> Box<dyn std::any::Any> {
+        fn apply_first(&mut self, table: &mut Vec<T>) -> Box<dyn Any> {
             table.pop();
             Box::new(())
         }
@@ -220,7 +221,8 @@ mod test {
 
         {
             let mut wg = writer.write();
-            wg.update_tables(Box::new(PushVec { value: 2 }));
+            let res = wg.update_tables(Box::new(PushVec { value: 2 }));
+            assert!(res.is::<()>());
             assert_eq!(wg.len(), 1);
             assert_eq!(reader.read().len(), 0);
         }

@@ -1,5 +1,6 @@
 use crate::table::Table;
-use std::sync::{Arc, RwLockReadGuard};
+use crate::types::RwLockReadGuard;
+use std::sync::Arc;
 
 pub struct Reader<T> {
     table: Arc<Table<T>>,
