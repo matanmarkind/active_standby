@@ -21,6 +21,9 @@
 //! requests without worrying aboutstarving the writer since it will be able to
 //! work on the standby table. This means multiple requests can be handled
 //! without having to relock the active_table.
+//!
+//! Creation is done through the Writer, which can then spawn Readers (Readers
+//! are clonable).
 
 mod read;
 mod table;
@@ -31,7 +34,7 @@ pub mod primitives {
     pub use crate::write::{UpdateTables, WriteGuard, Writer};
 }
 
-pub mod vec;
+mod vec;
 pub mod collections {
-    pub use crate::vec;
+    pub use crate::vec::vec;
 }
