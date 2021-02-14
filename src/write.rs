@@ -2,8 +2,9 @@ use crate::read::Reader;
 use crate::table::Table;
 use crate::types::RwLockWriteGuard;
 use std::any::Any;
+use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// This is the trait for functions that update the underlying tables. This is
 /// the most risky part that users will have to take care with. Specifically to
@@ -103,6 +104,15 @@ impl<T> Writer<T> {
     }
 }
 
+impl<T: fmt::Debug> fmt::Debug for Writer<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Writer")
+            .field("num_ops_to_replay", &self.ops_to_replay.len())
+            .field("active_table_reader", &self.new_reader())
+            .finish()
+    }
+}
+
 /// WriteGuard is the way to mutate the underlying tables. A Writer can only
 /// generate 1 at a time, which is enforced by the borrow checker on creation.
 ///
@@ -176,6 +186,48 @@ impl<'w, T> std::ops::Deref for WriteGuard<'w, T> {
     }
 }
 
+impl<'w, T: fmt::Debug> fmt::Debug for WriteGuard<'w, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WriteGuard")
+            .field("num_ops_to_replay", &self.ops_to_replay.len())
+            .field("is_table0_active", &self.is_table0_active)
+            .field("standby_table", &self.standby_table)
+            .finish()
+    }
+}
+
+/// Writer which is Send + Sync by just wrapping a Writer in a Mutex.
+///
+/// Given that I have to explicitly mark this as Send + Sync I am a little
+/// worried about this struct.
+pub struct SyncWriter<T> {
+    writer: Mutex<Writer<T>>,
+}
+
+unsafe impl<T> Send for SyncWriter<T> {}
+unsafe impl<T> Sync for SyncWriter<T> {}
+
+impl<T> std::ops::Deref for SyncWriter<T> {
+    type Target = Mutex<Writer<T>>;
+    fn deref(&self) -> &Self::Target {
+        &self.writer
+    }
+}
+
+impl<T> std::ops::DerefMut for SyncWriter<T> {
+    fn deref_mut(&mut self) -> &mut Mutex<Writer<T>> {
+        &mut self.writer
+    }
+}
+
+impl<T: fmt::Debug> fmt::Debug for SyncWriter<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SyncWriter")
+            .field("writer", &self.writer)
+            .finish()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -204,6 +256,12 @@ mod test {
             table.pop();
             Box::new(())
         }
+    }
+
+    // Just having this here makes cargo test fail to compile if Debug isn't implemented.
+    #[derive(Debug)]
+    struct MyStruct {
+        writer: SyncWriter<Vec<i32>>,
     }
 
     #[test]
@@ -332,5 +390,28 @@ mod test {
             }
         }
         assert_eq!(*reader.read(), vec![2, 3, 5]);
+    }
+
+    #[test]
+    fn debug_str() {
+        let mut writer = Writer::<Vec<i32>>::default();
+        let reader = writer.new_reader();
+        assert_eq!(
+            format!("{:?}", writer),
+            "Writer { num_ops_to_replay: 0, active_table_reader: Reader { read_guard: RwLockReadGuard { lock: RwLock { data: [] } } } }");
+        {
+            let mut wg = writer.write();
+            wg.update_tables(Box::new(PushVec { value: 2 }));
+            assert_eq!(
+                format!("{:?}", wg),
+                "WriteGuard { num_ops_to_replay: 1, is_table0_active: true, standby_table: RwLockWriteGuard { lock: RwLock { data: <locked> } } }");
+        }
+        assert_eq!(
+            format!("{:?}", writer),
+            "Writer { num_ops_to_replay: 1, active_table_reader: Reader { read_guard: RwLockReadGuard { lock: RwLock { data: [2] } } } }");
+        assert_eq!(
+            format!("{:?}", reader),
+            "Reader { read_guard: RwLockReadGuard { lock: RwLock { data: [2] } } }"
+        );
     }
 }
