@@ -1,5 +1,6 @@
 use crate::table::Table;
 use crate::types::RwLockReadGuard;
+use std::fmt;
 use std::sync::Arc;
 
 pub struct Reader<T> {
@@ -26,5 +27,13 @@ impl<T> Reader<T> {
 
     pub fn read(&self) -> ReadGuard<'_, T> {
         self.table.read_guard()
+    }
+}
+
+impl<T: fmt::Debug> fmt::Debug for Reader<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Reader")
+            .field("read_guard", &self.read())
+            .finish()
     }
 }
