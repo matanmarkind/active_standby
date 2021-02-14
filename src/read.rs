@@ -6,6 +6,8 @@ pub struct Reader<T> {
     table: Arc<Table<T>>,
 }
 
+pub type ReadGuard<'r, T> = RwLockReadGuard<'r, T>;
+
 /// Reader is the class used to read from an active_standby table. It's use is
 /// just like reading from an RwLock, but with the promise that there is never
 /// contention with a Writer.
@@ -22,7 +24,7 @@ impl<T> Reader<T> {
         }
     }
 
-    pub fn read(&self) -> RwLockReadGuard<'_, T> {
+    pub fn read(&self) -> ReadGuard<'_, T> {
         self.table.read_guard()
     }
 }

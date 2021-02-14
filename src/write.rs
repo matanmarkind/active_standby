@@ -111,7 +111,7 @@ impl<T> Writer<T> {
 /// implements the UpdateTables trait to mutate the underlying data.
 ///
 /// When dereferencing a WriteGuard we see the state of the standby_table, not
-/// the active_table which the Readers dereference. 
+/// the active_table which the Readers dereference.
 ///
 /// Upon Drop, a WriteGuard automatically publishes the changes to the Readers,
 /// by swapping the active and standby tables. The updates are only performed on
@@ -137,6 +137,10 @@ impl<'w, T> WriteGuard<'w, T> {
     ///
     /// It is critical the 'func' be deterministic so that it will perform the
     /// same action on both copies of the table.
+    ///
+    /// op implicitly requires that it be 'static, since it this is implicit in
+    /// traits. This makes sense since we pass in ownership of the op to Writer
+    /// and can't keep it tied to an outside object.
     pub fn update_tables(&mut self, mut op: Box<dyn UpdateTables<T>>) -> Box<dyn Any> {
         let res = op.apply_first(&mut self.standby_table);
         self.ops_to_replay.push(op);

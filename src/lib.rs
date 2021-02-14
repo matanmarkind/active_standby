@@ -15,14 +15,23 @@
 //! from the left_right crate, so feel free to check that out. We don't
 //! implement aliasing, so each table is a true deepcopy of the other. We also
 //! don't optimize for startup.
+//!
+//! Minimizing lock contention also makes batching a more effective strategy for
+//! Reader performance. Now you can grab a ReadGuard, and handle multiple
+//! requests without worrying aboutstarving the writer since it will be able to
+//! work on the standby table. This means multiple requests can be handled
+//! without having to relock the active_table.
 
-// Private modules.
 mod read;
 mod table;
 mod types;
 mod write;
+pub mod primitives {
+    pub use crate::read::{ReadGuard, Reader};
+    pub use crate::write::{UpdateTables, WriteGuard, Writer};
+}
 
-// Public exports.
-pub use read::Reader;
-pub use types::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-pub use write::{WriteGuard, Writer};
+pub mod vec;
+pub mod collections {
+    pub use crate::vec;
+}

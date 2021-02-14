@@ -4,8 +4,8 @@
 // writes that I am worried about is due to reader threads still holding the new
 // 'standby_table' when we try to create a new WriteGuard.
 
-/// Define locally the lock types used incase we want to switch to a different
-/// implementation.
+// Define locally the lock types used incase we want to switch to a different
+// implementation.
 pub type RwLock<T> = std::sync::RwLock<T>;
 pub type RwLockWriteGuard<'w, T> = std::sync::RwLockWriteGuard<'w, T>;
 pub type RwLockReadGuard<'r, T> = std::sync::RwLockReadGuard<'r, T>;
