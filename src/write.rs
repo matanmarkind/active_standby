@@ -141,6 +141,8 @@ impl<'w, T> WriteGuard<'w, T> {
     /// op implicitly requires that it be 'static, since it this is implicit in
     /// traits. This makes sense since we pass in ownership of the op to Writer
     /// and can't keep it tied to an outside object.
+    /// 
+    /// TODO: See if there is a way to not require 'op' be 'static.
     pub fn update_tables(&mut self, mut op: Box<dyn UpdateTables<T>>) -> Box<dyn Any> {
         let res = op.apply_first(&mut self.standby_table);
         self.ops_to_replay.push(op);
