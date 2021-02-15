@@ -10,7 +10,14 @@ use std::sync::{Arc, Mutex};
 /// the most risky part that users will have to take care with. Specifically to
 /// make sure that both apply_first and apply_second perform identical changes
 /// on the 2 tables.
+///
+/// TODO: consider removing this and instead the user can directly manipulate
+/// the standby_table, and only passes in a FnOnce(&mut T), to update the second
+/// table to the same state.
 pub trait UpdateTables<T> {
+    // Switch to:
+    // fn apply_first<'a>(&mut self, table: &'a mut T) -> Box<dyn Any + 'a>;
+    // This will allow the user to do things like drain.
     fn apply_first(&mut self, table: &mut T) -> Box<dyn Any>;
 
     fn apply_second(mut self: Box<Self>, table: &mut T) -> Box<dyn Any> {
@@ -44,6 +51,7 @@ pub struct Writer<T> {
     /// perform these ops on Drop. I think this optimization is worth the need
     /// for the user to wrap Writer in a Mutex though.
     ops_to_replay: Vec<Box<dyn UpdateTables<T>>>,
+    ops_to_replay_v2: Vec<Box<dyn FnOnce(&mut T)>>,
 }
 
 impl<T> Writer<T>
@@ -54,6 +62,7 @@ where
         Writer {
             table: Arc::new(Table::new_from_empty(t)),
             ops_to_replay: vec![],
+            ops_to_replay_v2: vec![],
         }
     }
 }
@@ -92,9 +101,15 @@ impl<T> Writer<T> {
         }
         self.ops_to_replay.clear();
 
+        for op in self.ops_to_replay_v2.drain(..) {
+            op(&mut standby_table);
+        }
+        self.ops_to_replay_v2.clear();
+
         WriteGuard {
             standby_table,
             ops_to_replay: &mut self.ops_to_replay,
+            ops_to_replay_v2: &mut self.ops_to_replay_v2,
             is_table0_active,
         }
     }
@@ -108,6 +123,7 @@ impl<T: fmt::Debug> fmt::Debug for Writer<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Writer")
             .field("num_ops_to_replay", &self.ops_to_replay.len())
+            .field("num_ops_to_replay_v2", &self.ops_to_replay_v2.len())
             .field("active_table_reader", &self.new_reader())
             .finish()
     }
@@ -135,6 +151,7 @@ pub struct WriteGuard<'w, T> {
     // Record the ops that were applied to standby_table to be replayed the next
     // time we create a WriteGuard.
     ops_to_replay: &'w mut Vec<Box<dyn UpdateTables<T>>>,
+    ops_to_replay_v2: &'w mut Vec<Box<dyn FnOnce(&mut T)>>,
 
     // Updated at drop.
     is_table0_active: &'w mut AtomicBool,
@@ -157,6 +174,13 @@ impl<'w, T> WriteGuard<'w, T> {
         let res = op.apply_first(&mut self.standby_table);
         self.ops_to_replay.push(op);
         res
+    }
+
+    pub fn standby_table_update<R, F: 'static + FnOnce(&mut T) -> R>(&mut self, op: F) -> R {
+        op(&mut self.standby_table)
+    }
+    pub fn active_table_update<F: 'static + FnOnce(&mut T)>(&mut self, op: F) {
+        self.ops_to_replay_v2.push(Box::new(op))
     }
 }
 
@@ -190,6 +214,7 @@ impl<'w, T: fmt::Debug> fmt::Debug for WriteGuard<'w, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("WriteGuard")
             .field("num_ops_to_replay", &self.ops_to_replay.len())
+            .field("num_ops_to_replay_v2", &self.ops_to_replay.len())
             .field("is_table0_active", &self.is_table0_active)
             .field("standby_table", &self.standby_table)
             .finish()
