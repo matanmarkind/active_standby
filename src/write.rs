@@ -213,18 +213,18 @@ where
 /// worried about this struct.
 pub struct SyncWriter<T, U>
 where
-    U: UpdateTables<T>,
+    U: UpdateTables<T> + Send,
 {
     writer: Mutex<Writer<T, U>>,
 }
 
-unsafe impl<T, U: UpdateTables<T>> Send for SyncWriter<T, U> {}
-unsafe impl<T, U: UpdateTables<T>> Sync for SyncWriter<T, U> {}
+unsafe impl<T, U: UpdateTables<T> + Send + Sync> Send for SyncWriter<T, U> {}
+unsafe impl<T, U: UpdateTables<T> + Send + Sync> Sync for SyncWriter<T, U> {}
 
 impl<T, U> SyncWriter<T, U>
 where
     T: Clone,
-    U: UpdateTables<T>,
+    U: UpdateTables<T> + Send,
 {
     pub fn new(t: T) -> SyncWriter<T, U> {
         SyncWriter {
@@ -235,7 +235,7 @@ where
 
 impl<T, U> std::ops::Deref for SyncWriter<T, U>
 where
-    U: UpdateTables<T>,
+    U: UpdateTables<T> + Send,
 {
     type Target = Mutex<Writer<T, U>>;
     fn deref(&self) -> &Self::Target {
@@ -245,7 +245,7 @@ where
 
 impl<T, U> std::ops::DerefMut for SyncWriter<T, U>
 where
-    U: UpdateTables<T>,
+    U: UpdateTables<T> + Send,
 {
     fn deref_mut(&mut self) -> &mut Mutex<Writer<T, U>> {
         &mut self.writer
@@ -255,7 +255,7 @@ where
 impl<T, U> fmt::Debug for SyncWriter<T, U>
 where
     T: fmt::Debug,
-    U: UpdateTables<T>,
+    U: UpdateTables<T> + Send,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SyncWriter")
