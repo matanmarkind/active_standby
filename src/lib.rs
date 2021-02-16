@@ -31,10 +31,11 @@ mod types;
 mod write;
 pub mod primitives {
     pub use crate::read::{ReadGuard, Reader};
-    pub use crate::write::{WriteGuard, Writer};
+    pub use crate::table::UpdateTables;
+    pub use crate::write::{WriteGuard, Writer, SyncWriter};
 }
 
-mod vec;
-pub mod collections {
-    pub use crate::vec::vec;
-}
+// mod vec;
+// pub mod collections {
+//     pub use crate::vec::vec;
+// }

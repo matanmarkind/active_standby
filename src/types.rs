@@ -7,5 +7,5 @@
 // Define locally the lock types used incase we want to switch to a different
 // implementation.
 pub type RwLock<T> = std::sync::RwLock<T>;
-pub type RwLockWriteGuard<'w, T> = std::sync::RwLockWriteGuard<'w, T>;
 pub type RwLockReadGuard<'r, T> = std::sync::RwLockReadGuard<'r, T>;
+pub type RwLockWriteGuard<'r, T> = std::sync::RwLockWriteGuard<'r, T>;
