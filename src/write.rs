@@ -218,7 +218,6 @@ where
     writer: Mutex<Writer<T, U>>,
 }
 
-unsafe impl<T, U: UpdateTables<T> + Send + Sync> Send for SyncWriter<T, U> {}
 unsafe impl<T, U: UpdateTables<T> + Send + Sync> Sync for SyncWriter<T, U> {}
 
 impl<T, U> SyncWriter<T, U>

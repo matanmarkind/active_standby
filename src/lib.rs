@@ -32,10 +32,10 @@ mod write;
 pub mod primitives {
     pub use crate::read::{ReadGuard, Reader};
     pub use crate::table::UpdateTables;
-    pub use crate::write::{WriteGuard, Writer, SyncWriter};
+    pub use crate::write::{SyncWriter, WriteGuard, Writer};
 }
 
-// mod vec;
-// pub mod collections {
-//     pub use crate::vec::vec;
-// }
+mod vec;
+pub mod collections {
+    pub use crate::vec::vec;
+}
