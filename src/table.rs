@@ -32,7 +32,8 @@ impl<T> Table<T> {
         (standby_table.unwrap(), &mut self.is_table0_active)
     }
 
-    // Return the pieces needed by a ReadGuard.
+    // Return the pieces needed by a ReadGuard. A read guard to the
+    // active_table.
     pub fn read_guard(&self) -> RwLockReadGuard<'_, T> {
         if self.is_table0_active.load(Ordering::Relaxed) {
             self.table0.read().unwrap()
