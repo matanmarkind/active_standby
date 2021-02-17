@@ -1,12 +1,20 @@
 use crate::read::Reader;
-use crate::table::{Table, UpdateTables};
+use crate::table::{Table, UpdateTables, UpdateTablesOpsList};
+use crate::types:rRwLockReadGuard;
 use std::fmt;
+use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
-/// Useful trick for specifying multiple lifetimes on impl return value.
-/// https://stackoverflow.com/questions/50547766/how-can-i-get-impl-trait-to-use-the-appropriate-lifetime-for-a-mutable-reference
-pub trait Captures<'a> {}
-impl<'a, T: ?Sized> Captures<'a> for T {}
+/// TODO: make writer a trait and have.
+/// - VanillaWriter - current writer.
+/// - SyncWriter - Add an Arc around the mutex and add clone.
+/// - ChannelWriter - Will just be a transmit_queue around
+///   channel<Vec<UpdateTables>> and an Arc<thread_handle>. There will be a busy
+///   loop thread (mode Synchronous or
+///   Asynchronous(SleepAfterFailureToAcquire)). This other thread promises that
+///   all updates wil be applied, soon, as opposed to the other writers where if
+///   there is a significant delay in between WriteGuard creation there can then
+///   be a delay in updating the Reader.
 
 /// Writer is the class used to control the underlying tables. It is neither
 /// Send nor Sync. If you want multithreaded access to writing you must put it
@@ -24,24 +32,7 @@ where
 {
     table: Arc<Table<T>>,
 
-    /// Log of operations to be performed on the active table. This gets played
-    /// on the standby table when creating a WriteGuard as an optimization.
-    /// Since when a WriteGuard is dropped, we swap the active and standby
-    /// tables, by waiting until the next time a WriteGuard is created we give
-    /// the readers time to switch to reading from the new active_table. This
-    /// hopefully reduces contention when the writer tries to lock the new
-    /// standby_table.
-    ///
-    /// We could make the Writer Send + Sync if we instead gave up on this
-    /// optimization and moved ops_to_replay into WriteGuard, and had WriteGuard
-    /// perform these ops on Drop. I think this optimization is worth the need
-    /// for the user to wrap Writer in a Mutex though.
-    ops_to_apply: Vec<U>,
-
-    /// The number of operations that have only been applied once. These
-    /// operations have already been applied to the active table. So when we
-    /// apply them to the standby_table we will consume them.
-    num_ops_applied_once: usize,
+    ops_list: UpdateTablesOpsList<T, U>,
 }
 
 impl<T, U> Writer<T, U>
@@ -52,8 +43,7 @@ where
     pub fn new(t: T) -> Writer<T, U> {
         Writer {
             table: Arc::new(Table::new(t)),
-            ops_to_apply: vec![],
-            num_ops_applied_once: 0,
+            ops_list: UpdateTablesOpsList::new(),
         }
     }
 }
@@ -75,11 +65,23 @@ where
         WriteGuard::new(self)
     }
 
-    /// Creates a new Reader.
+    /// Creates a new Reader which points to the data held in Writer.
     pub fn new_reader(&self) -> Reader<T> {
         Reader::new(Arc::clone(&self.table))
     }
+
+    // While it is thread safe to create other Writers, it would likely lead to
+    // unsafe usage. This is because of the delay in updates. If I had 2 threads
+    // updating the tables, they may check the state of the table, then make a
+    // decision about what update to send, but the other thread may commit its
+    // updates first, thereby causing the table to be in a different state than
+    // expected when the commit occurs.
 }
+
+/// I am not certain if I really need to require that U be send. Especially if a
+/// user is passing an empty writer to another thread I don't think this is
+/// needed.
+unsafe impl<T, U: UpdateTables<T> + Send> Send for Writer<T, U> {}
 
 impl<T, U> Drop for Writer<T, U>
 where
@@ -94,7 +96,7 @@ where
             std::mem::transmute::<*const Table<T>, &mut Table<T>>(Arc::as_ptr(&self.table))
         };
 
-        table.publish_updates(&mut self.ops_to_apply, &mut self.num_ops_applied_once);
+        table.publish_updates(&mut self.ops_list);
     }
 }
 
@@ -104,7 +106,7 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Writer")
-            .field("num_ops_to_apply", &self.ops_to_apply.len())
+            .field("op_list", &self.ops_list)
             .finish()
     }
 }
@@ -132,6 +134,10 @@ where
     // Record the ops that were applied to standby_table to be replayed the next
     // time we create a WriteGuard.
     writer: &'w mut Writer<T, U>,
+
+    /// WriteGuard must remain in the same thread as the Writer that created it.
+    /// TODO: double check if this is necessary.
+    _unimpl_send: PhantomData<*const T>,
 }
 
 /// WriteGuard is likely to be the trickiest for use. It is critical that the
@@ -157,15 +163,24 @@ where
         let table = unsafe {
             std::mem::transmute::<*const Table<T>, &mut Table<T>>(Arc::as_ptr(&self.writer.table))
         };
-        table.try_to_publish_updates(
-            &mut self.writer.ops_to_apply,
-            &mut self.writer.num_ops_applied_once,
-        );
+        table.try_to_publish_updates(&mut self.writer.ops_list);
+    }
+    fn apply_updates_to_standby_table(&mut self) {
+        // We rely on knowing that this is the only Writer and it can only call
+        // to 'write' when there are no existing WriteGuards.
+        let table = unsafe {
+            std::mem::transmute::<*const Table<T>, &mut Table<T>>(Arc::as_ptr(&self.writer.table))
+        };
+        table.apply_updates_to_standby_table(&mut self.writer.ops_list);
     }
 
     fn new(writer: &mut Writer<T, U>) -> WriteGuard<'_, T, U> {
-        let mut wg = WriteGuard { writer };
-        wg.try_to_publish();
+        let mut wg = WriteGuard {
+            writer,
+            _unimpl_send: PhantomData,
+        };
+        wg.mut_table()
+            .try_to_publish_updates(&mut wg.writer.ops_list);
         wg
     }
 
@@ -179,8 +194,25 @@ where
     /// value that affect the underlying table will not be reflected when the
     /// tables swap since we only replay the function, we don't know what the
     /// caller will do with it.
-    pub fn update_tables(&mut self, update: U) {
-        self.writer.ops_to_apply.push(update);
+    pub fn update_tables(&mut self, update: U) -> &mut Self {
+        self.writer.ops_list.push(update);
+        self
+    }
+
+    /// Perform all enqueued updates on the standby_table, but do not publish
+    /// the changes to the Readers (aka standby and active tables don't change
+    /// roles).
+    ///
+    /// This may hang until WriteGuard is able to obtain a write lock on the
+    /// standby table.
+    pub fn apply_updates_to_standby_table(&mut self) -> &Self {
+        self.mut_table()
+            .apply_updates_to_standby_table(&mut self.writer.ops_list);
+        self
+    }
+
+    pub fn read(&mut self) -> RwLockReadGuard<'_, T> {
+        self.writer.table.standby_table_guard()
     }
 }
 
@@ -191,7 +223,8 @@ where
     U: UpdateTables<T>,
 {
     fn drop(&mut self) {
-        self.try_to_publish();
+        self.mut_table()
+            .try_to_publish_updates(&mut self.writer.ops_list);
     }
 }
 
@@ -209,16 +242,15 @@ where
 
 /// Writer which is Send + Sync by just wrapping a Writer in a Mutex.
 ///
-/// Given that I have to explicitly mark this as Send + Sync I am a little
-/// worried about this struct.
+/// Mostly here to save users having to add "impl Sync" if they want to use
+/// Mutex<Writer>.
 pub struct SyncWriter<T, U>
 where
     U: UpdateTables<T> + Send,
 {
     writer: Mutex<Writer<T, U>>,
 }
-
-unsafe impl<T, U: UpdateTables<T> + Send + Sync> Sync for SyncWriter<T, U> {}
+unsafe impl<T, U: UpdateTables<T> + Send> Sync for SyncWriter<T, U> {}
 
 impl<T, U> SyncWriter<T, U>
 where
