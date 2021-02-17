@@ -9,8 +9,9 @@ pub struct Table<T> {
     // This is a tradeoff between branching and indirection (aka CPU speed v.
     // Memory loading speed). I lean now towards branching since CPUs seem to be
     // quite fast and other examples indicate to me that this could be better
-    // (e.g. C++ std::string switched from just following a pointer to storing
-    // short strings locally https://www.youtube.com/watch?v=kPR8h4-qZdk)
+    // than having AtomicPtr<RwLock<T>>. e.g. C++ std::string switched from
+    // just following a pointer to storing short strings locally
+    // https://www.youtube.com/watch?v=kPR8h4-qZdk
     table0: RwLock<T>,
     table1: RwLock<T>,
 
@@ -47,7 +48,7 @@ impl<T> Table<T>
 where
     T: Clone,
 {
-    pub fn new_from_empty(t: T) -> Table<T> {
+    pub fn new(t: T) -> Table<T> {
         Table {
             table0: RwLock::new(t.clone()),
             table1: RwLock::new(t),

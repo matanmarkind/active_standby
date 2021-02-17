@@ -29,12 +29,11 @@ pub struct Writer<T> {
     table: Arc<Table<T>>,
 
     /// Log of operations to be performed on the active table. This gets played
-    /// on the standby table when creating a WriteGuard as an optimization.
-    /// Since when a WriteGuard is dropped, we swap the active and standby
-    /// tables, by waiting until the next time a WriteGuard is created we give
-    /// the readers time to switch to reading from the new active_table. This
-    /// hopefully reduces contention when the writer tries to lock the new
-    /// standby_table.
+    /// on the standby table when creating a WriteGuard, as opposed to when
+    /// dropping it, as an optimization. This is in the hopes that by waiting
+    /// until the next time a WriteGuard is created, we give the readers time to
+    /// switch to reading from the new active_table, with the goal of reducing
+    /// lock contention.
     ///
     /// We could make the Writer Send + Sync if we instead gave up on this
     /// optimization and moved ops_to_replay into WriteGuard, and had WriteGuard
@@ -47,9 +46,9 @@ impl<T> Writer<T>
 where
     T: Clone,
 {
-    pub fn new_from_empty(t: T) -> Writer<T> {
+    pub fn new(t: T) -> Writer<T> {
         Writer {
-            table: Arc::new(Table::new_from_empty(t)),
+            table: Arc::new(Table::new(t)),
             ops_to_replay: vec![],
         }
     }
@@ -60,7 +59,7 @@ where
     T: Default + Clone,
 {
     pub fn default() -> Writer<T> {
-        Self::new_from_empty(T::default())
+        Self::new(T::default())
     }
 }
 
@@ -110,22 +109,17 @@ impl<T: fmt::Debug> fmt::Debug for Writer<T> {
     }
 }
 
-/// WriteGuard is the way to mutate the underlying tables. A Writer can only
-/// generate 1 at a time, which is enforced by the borrow checker on creation.
+/// WriteGuard is the interface used to actually mutate the tables. The
+/// lifecycle of a WriteGuard is as follows:
+/// 1. Creation - Write lock the standby_table and apply all updates on it via
+///    'apply_second'. This consumes all of the udpates.
+/// 2. Lifetime - update the standby table synchronously as updates come in via
+///    'apply_first'. This updates are then held onto for the next WriteGuard
+///    creation.
+/// 3. Drop - When a WriteGuard is dropped swap the active and standby tables,
+///    publishing all of the updates to the Readers.
 ///
-/// Unlike an RwLockWriteGuard, we don't mutate the underlying data in a
-/// transparent manner. Instead the caller must pass in a function which
-/// implements the UpdateTables trait to mutate the underlying data.
-///
-/// When dereferencing a WriteGuard we see the state of the standby_table, not
-/// the active_table which the Readers dereference.
-///
-/// Upon Drop, a WriteGuard automatically publishes the changes to the Readers,
-/// by swapping the active and standby tables. The updates are only performed on
-/// the new standby table the next time a WriteGuard is created. This is to
-/// minimize thread contention. That way Readers will have a chance to switch to
-/// reading from the new active table before trying to WriteLock the new standby
-/// table.
+/// Only 1 WriteGuard can exist at a time for a given Table.
 pub struct WriteGuard<'w, T> {
     standby_table: RwLockWriteGuard<'w, T>,
 
@@ -137,28 +131,14 @@ pub struct WriteGuard<'w, T> {
     is_table0_active: &'w mut AtomicBool,
 }
 
-/// WriteGuard is the interface used to actually mutate the tables. The
-/// lifecycle of a WriteGuard is as follows:
-/// 1. Creation - Write lock the standby_table and apply all updates on it via
-///    'apply_second'. This consumes all of the udpates.
-/// 2. Lifetime - update the standby table synchronously as updates come in via
-///    'apply_first'. This updates are then held onto for the next WriteGuard
-///    creation.
-/// 3. Drop - When a WriteGuard is dropped swap the active and standby tables,
-///    publishing all of the updates to the Readers.
 impl<'w, T> WriteGuard<'w, T> {
-    /// Passes in a function to mutate the tables that is performed on both
-    /// tables. The operation is applied synchronously on the standby_table and
-    /// the return value is returned to the caller. The op is then enqueued and
-    /// will be called on the current active_table before the next WriteGuard is
-    /// created (when it will be the standby_table).
+    /// Takes an update which will change the state of the underlying data. This
+    /// is done through the interface of UpdateTables.
     ///
-    /// Please be aware that any mutations that the caller makes on a returned
-    /// value that affect the underlying table will not be reflected when the
-    /// tables swap since we only replay the function, we don't know what the
-    /// caller will do with it. That is why the return value is not tied to the
-    /// lifetime of self, in the hopes this will prevent that from being
-    /// possible.
+    /// The return value can be anything that owns it's own data. This is as a
+    /// way to help enforce safety by preventing a user returning a &mut to the
+    /// underlying data and then manipulating that in a way that can't be
+    /// mimiced by apply_second.
     ///
     /// The update passed in must be valid for 'static because it will outlive
     /// the WriteGuard taking the update, so we can't make any limitations on

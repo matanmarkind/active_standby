@@ -44,7 +44,7 @@ pub mod vec {
     {
         pub fn new() -> Writer<T> {
             Writer {
-                writer: primitives::Writer::<Vec<T>>::new_from_empty(Vec::<T>::new()),
+                writer: primitives::Writer::<Vec<T>>::new(vec![]),
             }
         }
     }
