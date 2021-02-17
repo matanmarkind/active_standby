@@ -31,8 +31,7 @@ mod types;
 mod write;
 pub mod primitives {
     pub use crate::read::{ReadGuard, Reader};
-    pub use crate::table::UpdateTables;
-    pub use crate::write::{SyncWriter, WriteGuard, Writer};
+    pub use crate::write::{WriteGuard, Writer};
 }
 
 mod vec;

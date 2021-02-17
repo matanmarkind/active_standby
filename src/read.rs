@@ -19,8 +19,14 @@ impl<T> Reader<T> {
         Reader { table }
     }
 
+    pub fn clone(orig: &Reader<T>) -> Reader<T> {
+        Reader {
+            table: Arc::clone(&orig.table),
+        }
+    }
+
     pub fn read(&self) -> ReadGuard<'_, T> {
-        self.table.active_table_guard()
+        self.table.read_guard()
     }
 }
 
@@ -29,13 +35,5 @@ impl<T: fmt::Debug> fmt::Debug for Reader<T> {
         f.debug_struct("Reader")
             .field("read_guard", &self.read())
             .finish()
-    }
-}
-
-impl<T> Clone for Reader<T> {
-    fn clone(&self) -> Self {
-        Reader {
-            table: Arc::clone(&self.table),
-        }
     }
 }
