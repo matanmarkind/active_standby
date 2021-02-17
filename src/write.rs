@@ -114,8 +114,8 @@ impl<T: fmt::Debug> fmt::Debug for Writer<T> {
 /// 1. Creation - Write lock the standby_table and apply all updates on it via
 ///    'apply_second'. This consumes all of the udpates.
 /// 2. Lifetime - update the standby table synchronously as updates come in via
-///    'apply_first'. This updates are then held onto for the next WriteGuard
-///    creation.
+///    'apply_first'. Updates are then held onto for the next WriteGuard
+///    creation in order to update the other table.
 /// 3. Drop - When a WriteGuard is dropped swap the active and standby tables,
 ///    publishing all of the updates to the Readers.
 ///
