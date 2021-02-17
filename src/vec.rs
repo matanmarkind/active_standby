@@ -8,6 +8,7 @@
 /// table without recording it.
 pub mod vec {
     use crate::primitives;
+    use crate::primitives::UpdateTables;
     use std::ops::RangeBounds;
 
     pub struct Reader<T> {
@@ -72,50 +73,162 @@ pub mod vec {
         }
     }
 
+    struct Push<T> {
+        value: T,
+    }
+    impl<T> UpdateTables<Vec<T>, ()> for Push<T>
+    where
+        T: Clone,
+    {
+        fn apply_first(&mut self, table: &mut Vec<T>) {
+            table.push(self.value.clone());
+        }
+        fn apply_second(self: Box<Self>, table: &mut Vec<T>) {
+            table.push(self.value); // Move the value instead of cloning.
+        }
+    }
+
+    struct Insert<T> {
+        index: usize,
+        element: T,
+    }
+    impl<T> UpdateTables<Vec<T>, ()> for Insert<T>
+    where
+        T: Clone,
+    {
+        fn apply_first(&mut self, table: &mut Vec<T>) {
+            table.insert(self.index, self.element.clone())
+        }
+        fn apply_second(self: Box<Self>, table: &mut Vec<T>) {
+            // Move the value instead of cloning.
+            table.insert(self.index, self.element)
+        }
+    }
+
+    struct Pop {}
+    impl<T> UpdateTables<Vec<T>, Option<T>> for Pop {
+        fn apply_first(&mut self, table: &mut Vec<T>) -> Option<T> {
+            table.pop()
+        }
+    }
+
+    struct Reserve {
+        additional: usize,
+    }
+    impl<T> UpdateTables<Vec<T>, ()> for Reserve {
+        fn apply_first(&mut self, table: &mut Vec<T>) {
+            table.reserve(self.additional)
+        }
+    }
+
+    struct ReserveExact {
+        additional: usize,
+    }
+    impl<T> UpdateTables<Vec<T>, ()> for ReserveExact {
+        fn apply_first(&mut self, table: &mut Vec<T>) {
+            table.reserve(self.additional)
+        }
+    }
+
+    struct ShrinkToFit {}
+    impl<T> UpdateTables<Vec<T>, ()> for ShrinkToFit {
+        fn apply_first(&mut self, table: &mut Vec<T>) {
+            table.shrink_to_fit()
+        }
+    }
+
+    struct Truncate {
+        len: usize,
+    }
+    impl<T> UpdateTables<Vec<T>, ()> for Truncate {
+        fn apply_first(&mut self, table: &mut Vec<T>) {
+            table.truncate(self.len)
+        }
+    }
+
+    struct SwapRemove {
+        index: usize,
+    }
+    impl<T> UpdateTables<Vec<T>, T> for SwapRemove {
+        fn apply_first(&mut self, table: &mut Vec<T>) -> T {
+            table.swap_remove(self.index)
+        }
+    }
+
+    struct Drain<R>
+    where
+        R: 'static + Clone + RangeBounds<usize>,
+    {
+        range: R,
+    }
+    impl<T, R> UpdateTables<Vec<T>, Vec<T>> for Drain<R>
+    where
+        R: 'static + Clone + RangeBounds<usize>,
+    {
+        fn apply_first(&mut self, table: &mut Vec<T>) -> Vec<T> {
+            table.drain(self.range.clone()).collect()
+        }
+        fn apply_second(self: Box<Self>, table: &mut Vec<T>) {
+            table.drain(self.range);
+        }
+    }
+
+    struct Retain<T, F>
+    where
+        F: 'static + Clone + FnMut(&T) -> bool,
+    {
+        f: F,
+        _compile_t: std::marker::PhantomData<T>,
+    }
+    impl<T, F> UpdateTables<Vec<T>, ()> for Retain<T, F>
+    where
+        F: 'static + Clone + FnMut(&T) -> bool,
+    {
+        fn apply_first(&mut self, table: &mut Vec<T>) {
+            table.retain(self.f.clone())
+        }
+        fn apply_second(self: Box<Self>, table: &mut Vec<T>) {
+            table.retain(self.f)
+        }
+    }
+
     // Here we reimplement the mutable interface of a Vec.
     impl<'w, T> WriteGuard<'w, T>
     where
         T: 'static + Clone,
     {
         pub fn push(&mut self, value: T) {
-            self.guard
-                .update_tables(move |table: &mut Vec<T>| table.push(value.clone()))
+            self.guard.update_tables(Push { value })
         }
 
         pub fn insert(&mut self, index: usize, element: T) {
-            self.guard
-                .update_tables(move |table: &mut Vec<T>| table.insert(index, element.clone()))
+            self.guard.update_tables(Insert { index, element })
         }
     }
 
     impl<'w, T> WriteGuard<'w, T> {
         pub fn pop(&mut self) -> Option<T> {
-            self.guard.update_tables(|table: &mut Vec<T>| table.pop())
+            self.guard.update_tables(Pop {})
         }
 
         pub fn reserve(&mut self, additional: usize) {
-            self.guard
-                .update_tables(move |table: &mut Vec<T>| table.reserve(additional))
+            self.guard.update_tables(Reserve { additional })
         }
 
         pub fn reserve_exact(&mut self, additional: usize) {
-            self.guard
-                .update_tables(move |table: &mut Vec<T>| table.reserve_exact(additional))
+            self.guard.update_tables(ReserveExact { additional })
         }
 
         pub fn shrink_to_fit(&mut self) {
-            self.guard
-                .update_tables(|table: &mut Vec<T>| table.shrink_to_fit())
+            self.guard.update_tables(ShrinkToFit {})
         }
 
         pub fn truncate(&mut self, len: usize) {
-            self.guard
-                .update_tables(move |table: &mut Vec<T>| table.truncate(len))
+            self.guard.update_tables(Truncate { len })
         }
 
         pub fn swap_remove(&mut self, index: usize) -> T {
-            self.guard
-                .update_tables(move |table: &mut Vec<T>| table.swap_remove(index))
+            self.guard.update_tables(SwapRemove { index })
         }
 
         /// Performs the same mutation on the data as Vec::drain, but instead of
@@ -128,17 +241,22 @@ pub mod vec {
         where
             R: 'static + Clone + RangeBounds<usize>,
         {
-            self.guard.update_tables(move |table: &mut Vec<T>| {
-                table.drain(range.clone()).collect::<Vec<_>>()
-            })
+            self.guard.update_tables(Drain { range })
         }
+    }
 
+    impl<'w, T> WriteGuard<'w, T>
+    where
+        T: 'static,
+    {
         pub fn retain<F>(&mut self, f: F)
         where
             F: 'static + Clone + FnMut(&T) -> bool,
         {
-            self.guard
-                .update_tables(move |table: &mut Vec<T>| table.retain(f.clone()))
+            self.guard.update_tables(Retain {
+                f,
+                _compile_t: std::marker::PhantomData::<T>,
+            })
         }
     }
 }

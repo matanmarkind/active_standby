@@ -5,6 +5,19 @@ use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+/// Operations that update that data held internally must implement this
+/// interface.
+///
+/// Users must be careful to guarantee that apply_first and apply_second cause
+/// the tables to end up in the same state.
+pub trait UpdateTables<T, R> {
+    fn apply_first(&mut self, table: &mut T) -> R;
+
+    fn apply_second(mut self: Box<Self>, table: &mut T) {
+        Self::apply_first(&mut self, table);
+    }
+}
+
 /// Writer is the class used to gain access to mutating the underlying tables.
 /// In order to interact with the underlying tables you must create a
 /// WriteGuard.
@@ -124,17 +137,15 @@ pub struct WriteGuard<'w, T> {
     is_table0_active: &'w mut AtomicBool,
 }
 
-/// WriteGuard is likely to be the trickiest for use. It is critical that the
-/// user make sure that any mutation that occurs on one table, also occurs on
-/// the other. In order to achieve this we provider 3 interfaces:
-/// - update_tables - the simplest and safest interface. Takes in a single
-///   function and applies it to both tables.
-/// - update_tables_individually - allows for more complex return values
-///   specifically with lifetime requirements.
-/// - standby_table_and_active_table_enqueue - the least preffered interface due
-///   to expectations of misuse. The user must make sure that all mutations
-///   performed on the standby_table directly are reflected in the update
-///   operation(s) they enqueue.
+/// WriteGuard is the interface used to actually mutate the tables. The
+/// lifecycle of a WriteGuard is as follows:
+/// 1. Creation - Write lock the standby_table and apply all updates on it via
+///    'apply_second'. This consumes all of the udpates.
+/// 2. Lifetime - update the standby table synchronously as updates come in via
+///    'apply_first'. This updates are then held onto for the next WriteGuard
+///    creation.
+/// 3. Drop - When a WriteGuard is dropped swap the active and standby tables,
+///    publishing all of the updates to the Readers.
 impl<'w, T> WriteGuard<'w, T> {
     /// Passes in a function to mutate the tables that is performed on both
     /// tables. The operation is applied synchronously on the standby_table and
@@ -148,14 +159,17 @@ impl<'w, T> WriteGuard<'w, T> {
     /// caller will do with it. That is why the return value is not tied to the
     /// lifetime of self, in the hopes this will prevent that from being
     /// possible.
-    pub fn update_tables<R, F>(&mut self, mut update: F) -> R
-    where
-        F: 'static + FnMut(&mut T) -> R,
-    {
-        let res = update(&mut self.standby_table);
+    ///
+    /// The update passed in must be valid for 'static because it will outlive
+    /// the WriteGuard taking the update, so we can't make any limitations on
+    /// it.
+    pub fn update_tables<R>(&mut self, mut update: impl UpdateTables<T, R> + 'static) -> R {
+        let res = update.apply_first(&mut self.standby_table);
+
         self.ops_to_replay.push(Box::new(move |table| {
-            update(table);
+            Box::new(update).apply_second(table);
         }));
+
         res
     }
 }
@@ -233,10 +247,32 @@ mod test {
     use super::*;
     use std::thread;
 
-    fn check_tables_match<T: PartialEq + std::fmt::Debug>(writer: &mut Writer<T>, expected: T) {
-        assert_eq!(*writer.new_reader().read(), expected);
-        assert_eq!(*writer.write(), expected);
-        assert_eq!(*writer.new_reader().read(), expected);
+    struct PushVec<T> {
+        value: T,
+    }
+    impl<T> UpdateTables<Vec<T>, ()> for PushVec<T>
+    where
+        T: Clone,
+    {
+        fn apply_first(&mut self, table: &mut Vec<T>) {
+            table.push(self.value.clone());
+        }
+        fn apply_second(self: Box<Self>, table: &mut Vec<T>) {
+            table.push(self.value); // Move the value instead of cloning.
+        }
+    }
+
+    struct PopVec {}
+    impl<T> UpdateTables<Vec<T>, Option<T>> for PopVec {
+        fn apply_first(&mut self, table: &mut Vec<T>) -> Option<T> {
+            table.pop()
+        }
+    }
+
+    // Just having this here makes cargo test fail to compile if Debug isn't implemented.
+    #[derive(Debug)]
+    struct MyStruct {
+        writer: SyncWriter<Vec<i32>>,
     }
 
     #[test]
@@ -259,60 +295,62 @@ mod test {
 
         {
             let mut wg = writer.write();
-            wg.update_tables(|table: &mut Vec<i32>| table.push(2));
-            assert_eq!(
-                wg.update_tables(|table: &mut Vec<i32>| table.pop()),
-                Some(2)
-            );
-            wg.update_tables(|table: &mut Vec<i32>| table.push(4));
-
+            wg.update_tables(PushVec { value: 2 });
             assert_eq!(wg.len(), 1);
             assert_eq!(reader.read().len(), 0);
         }
 
         // When the write guard is dropped it publishes the changes to the readers.
-        check_tables_match(&mut writer, vec![4]);
+        assert_eq!(*reader.read(), vec![2]);
     }
 
     #[test]
     fn multi_apply() {
-        // As opposed to the above which could mask an issue of just applying
-        // the last update, show multiple updates with their side effects.
         let mut writer = Writer::<Vec<i32>>::default();
         {
             let mut wg = writer.write();
-            wg.update_tables(|table: &mut Vec<i32>| table.push(2));
-            wg.update_tables(|table: &mut Vec<i32>| table.push(3));
-            wg.update_tables(|table: &mut Vec<i32>| table.push(4));
-            wg.update_tables(|table: &mut Vec<i32>| table.pop());
-            wg.update_tables(|table: &mut Vec<i32>| table.push(5));
-            assert_eq!(*wg, vec![2, 3, 5]);
+            wg.update_tables(PushVec { value: 2 });
+            wg.update_tables(PushVec { value: 3 });
+            wg.update_tables(PushVec { value: 4 });
+            wg.update_tables(PopVec {});
+            wg.update_tables(PushVec { value: 5 });
         }
-
-        check_tables_match(&mut writer, vec![2, 3, 5]);
+        let reader = writer.new_reader();
+        assert_eq!(*reader.read(), vec![2, 3, 5]);
     }
 
     #[test]
     fn multi_publish() {
-        let mut writer = Writer::<Vec<i32>>::default();
+        let mut writer = Writer::<Vec<Box<i32>>>::default();
+        {
+            let mut wg = writer.write();
+            wg.update_tables(PushVec { value: Box::new(2) });
+            wg.update_tables(PushVec { value: Box::new(3) });
+            wg.update_tables(PopVec {});
+            wg.update_tables(PushVec { value: Box::new(5) });
+        }
         let reader = writer.new_reader();
-        {
-            let mut wg = writer.write();
-            wg.update_tables(|table: &mut Vec<i32>| table.push(4));
-        }
-        assert_eq!(*reader.read(), vec![4]);
+        assert_eq!(*reader.read(), vec![Box::new(2), Box::new(5)]);
 
         {
             let mut wg = writer.write();
-            wg.update_tables(|table: &mut Vec<i32>| table.push(4));
+            wg.update_tables(PushVec { value: Box::new(9) });
+            wg.update_tables(PushVec { value: Box::new(8) });
+            wg.update_tables(PopVec {});
+            wg.update_tables(PushVec { value: Box::new(7) });
         }
-        assert_eq!(*reader.read(), vec![4, 4]);
+        let reader = writer.new_reader();
+        assert_eq!(
+            *reader.read(),
+            vec![Box::new(2), Box::new(5), Box::new(9), Box::new(7)]
+        );
 
         {
             let mut wg = writer.write();
-            wg.update_tables(|table: &mut Vec<i32>| table.pop());
+            wg.update_tables(PopVec {});
         }
-        assert_eq!(*reader.read(), vec![4]);
+        let reader = writer.new_reader();
+        assert_eq!(*reader.read(), vec![Box::new(2), Box::new(5), Box::new(9)]);
     }
 
     #[test]
@@ -334,11 +372,11 @@ mod test {
 
         {
             let mut wg = writer.write();
-            wg.update_tables(|table: &mut Vec<i32>| table.push(2));
-            wg.update_tables(|table: &mut Vec<i32>| table.push(3));
-            wg.update_tables(|table: &mut Vec<i32>| table.push(4));
-            wg.update_tables(|table: &mut Vec<i32>| table.pop());
-            wg.update_tables(|table: &mut Vec<i32>| table.push(5));
+            wg.update_tables(PushVec { value: 2 });
+            wg.update_tables(PushVec { value: 3 });
+            wg.update_tables(PushVec { value: 4 });
+            wg.update_tables(PopVec {});
+            wg.update_tables(PushVec { value: 5 });
         }
 
         assert!(handler.join().is_ok());
@@ -354,11 +392,11 @@ mod test {
 
             {
                 let mut wg = writer.write();
-                wg.update_tables(|table: &mut Vec<i32>| table.push(2));
-                wg.update_tables(|table: &mut Vec<i32>| table.push(3));
-                wg.update_tables(|table: &mut Vec<i32>| table.push(4));
-                wg.update_tables(|table: &mut Vec<i32>| table.pop());
-                wg.update_tables(|table: &mut Vec<i32>| table.push(5));
+                wg.update_tables(PushVec { value: 2 });
+                wg.update_tables(PushVec { value: 3 });
+                wg.update_tables(PushVec { value: 4 });
+                wg.update_tables(PopVec {});
+                wg.update_tables(PushVec { value: 5 });
             }
         }
         assert_eq!(*reader.read(), vec![2, 3, 5]);
@@ -373,7 +411,7 @@ mod test {
             "Writer { num_ops_to_replay: 0, active_table_reader: Reader { read_guard: RwLockReadGuard { lock: RwLock { data: [] } } } }");
         {
             let mut wg = writer.write();
-            wg.update_tables(|table: &mut Vec<i32>| table.push(2));
+            wg.update_tables(PushVec { value: 2 });
             assert_eq!(
                 format!("{:?}", wg),
                 "WriteGuard { num_ops_to_replay: 1, is_table0_active: true, standby_table: RwLockWriteGuard { lock: RwLock { data: <locked> } } }");
