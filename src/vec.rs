@@ -35,7 +35,7 @@ pub mod vec {
     }
 
     pub struct Writer<T> {
-        writer: primitives::Writer<Vec<T>>,
+        writer: primitives::SendWriter<Vec<T>>,
     }
 
     impl<T> Writer<T>
@@ -44,7 +44,7 @@ pub mod vec {
     {
         pub fn new() -> Writer<T> {
             Writer {
-                writer: primitives::Writer::<Vec<T>>::new(vec![]),
+                writer: primitives::SendWriter::new(vec![]),
             }
         }
     }
@@ -63,7 +63,7 @@ pub mod vec {
     }
 
     pub struct WriteGuard<'w, T> {
-        guard: primitives::WriteGuard<'w, Vec<T>>,
+        guard: primitives::SendWriteGuard<'w, Vec<T>>,
     }
 
     impl<'w, T> std::ops::Deref for WriteGuard<'w, T> {
@@ -195,7 +195,7 @@ pub mod vec {
     // Here we reimplement the mutable interface of a Vec.
     impl<'w, T> WriteGuard<'w, T>
     where
-        T: 'static + Clone,
+        T: 'static + Clone + Send,
     {
         pub fn push(&mut self, value: T) {
             self.guard.update_tables(Push { value })
@@ -239,7 +239,7 @@ pub mod vec {
         /// data.
         pub fn drain<R>(&mut self, range: R) -> Vec<T>
         where
-            R: 'static + Clone + RangeBounds<usize>,
+            R: 'static + Clone + Send + RangeBounds<usize>,
         {
             self.guard.update_tables(Drain { range })
         }
@@ -247,11 +247,11 @@ pub mod vec {
 
     impl<'w, T> WriteGuard<'w, T>
     where
-        T: 'static,
+        T: 'static + Send,
     {
         pub fn retain<F>(&mut self, f: F)
         where
-            F: 'static + Clone + FnMut(&T) -> bool,
+            F: 'static + Clone + Send + FnMut(&T) -> bool,
         {
             self.guard.update_tables(Retain {
                 f,

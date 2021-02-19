@@ -3,7 +3,7 @@ use crate::table::Table;
 use crate::types::RwLockWriteGuard;
 use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// Operations that update that data held internally must implement this
 /// interface.
@@ -31,7 +31,7 @@ pub struct Writer<T> {
     /// Log of operations to be performed on the active table. This gets played
     /// on the standby table when creating a WriteGuard, as opposed to when
     /// dropping it, as an optimization. This is in the hopes that by waiting
-    /// until the next time a WriteGuard is created, we give the readers time to
+    /// until the next time a WriteGuard is created, we give the reafmt::Debugders time to
     /// switch to reading from the new active_table, with the goal of reducing
     /// lock contention.
     ///
@@ -143,7 +143,7 @@ impl<'w, T> WriteGuard<'w, T> {
     /// The update passed in must be valid for 'static because it will outlive
     /// the WriteGuard taking the update, so we can't make any limitations on
     /// it.
-    pub fn update_tables<R>(&mut self, mut update: impl UpdateTables<T, R> + 'static) -> R {
+    pub fn update_tables<R>(&mut self, mut update: impl UpdateTables<T, R> + 'static + Sized) -> R {
         let res = update.apply_first(&mut self.standby_table);
 
         self.ops_to_replay.push(Box::new(move |table| {
@@ -190,35 +190,79 @@ impl<'w, T: fmt::Debug> fmt::Debug for WriteGuard<'w, T> {
     }
 }
 
-/// Writer which is Send + Sync by just wrapping a Writer in a Mutex.
+/// SendWriter is a wrapper around Writer that is able to be sent across
+/// threads.
 ///
-/// Given that I have to explicitly mark this as Send + Sync I am a little
-/// worried about this struct.
-pub struct SyncWriter<T> {
-    writer: Mutex<Writer<T>>,
+/// The only difference between SendWriter and Writer is that update_tables
+/// requires that the update passed in be Send.
+#[derive(Debug)]
+pub struct SendWriter<T> {
+    writer: Writer<T>,
 }
 
-unsafe impl<T> Send for SyncWriter<T> {}
-unsafe impl<T> Sync for SyncWriter<T> {}
+impl<T> SendWriter<T>
+where
+    T: Clone,
+{
+    pub fn new(t: T) -> SendWriter<T> {
+        SendWriter {
+            writer: Writer::new(t),
+        }
+    }
+}
 
-impl<T> std::ops::Deref for SyncWriter<T> {
-    type Target = Mutex<Writer<T>>;
+impl<T> SendWriter<T>
+where
+    T: Default + Clone,
+{
+    pub fn default() -> SendWriter<T> {
+        Self::new(T::default())
+    }
+}
+
+impl<T> SendWriter<T> {
+    pub fn write(&mut self) -> SendWriteGuard<'_, T> {
+        SendWriteGuard {
+            guard: self.writer.write(),
+        }
+    }
+}
+
+impl<T> std::ops::Deref for SendWriter<T> {
+    type Target = Writer<T>;
     fn deref(&self) -> &Self::Target {
         &self.writer
     }
 }
 
-impl<T> std::ops::DerefMut for SyncWriter<T> {
-    fn deref_mut(&mut self) -> &mut Mutex<Writer<T>> {
-        &mut self.writer
+/// Writer is made of 2 components.
+/// - Arc<Tables> which is Send + Sync if T is Send.
+/// - Vec<Updates> which is Send if the updates are.
+///
+/// We enforce that all updates passed to a SendWriteGuard are Send, so
+/// therefore SendWriter is Send.
+unsafe impl<T> Send for SendWriter<T> where T: Send {}
+
+/// Guard for a SendWriter, not a WriteGuard that is Send.
+///
+/// Same as a WriteGuard, but update_tables requires that updates are Send.
+pub struct SendWriteGuard<'w, T> {
+    guard: WriteGuard<'w, T>,
+}
+
+impl<'w, T> SendWriteGuard<'w, T> {
+    pub fn update_tables<R>(
+        &mut self,
+        update: impl UpdateTables<T, R> + 'static + Sized + Send,
+    ) -> R {
+        self.guard.update_tables(update)
     }
 }
 
-impl<T: fmt::Debug> fmt::Debug for SyncWriter<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SyncWriter")
-            .field("writer", &self.writer)
-            .finish()
+impl<'w, T> std::ops::Deref for SendWriteGuard<'w, T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &*self.guard
     }
 }
 
@@ -247,12 +291,6 @@ mod test {
         fn apply_first(&mut self, table: &mut Vec<T>) -> Option<T> {
             table.pop()
         }
-    }
-
-    // Just having this here makes cargo test fail to compile if Debug isn't implemented.
-    #[derive(Debug)]
-    struct MyStruct {
-        writer: SyncWriter<Vec<i32>>,
     }
 
     #[test]

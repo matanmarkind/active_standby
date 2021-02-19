@@ -21,6 +21,11 @@ pub struct Table<T> {
     is_table0_active: AtomicBool,
 }
 
+/// This marks that Table is Sync, since it handles its own synchronization. It
+/// is also important to mark it this way so that Writer can be Send without T
+/// needing to be Sync.
+unsafe impl<T> Sync for Table<T> where T: Send {}
+
 impl<T> Table<T> {
     // Return the peices needed by a WriteGuard.
     pub fn write_guard(&mut self) -> (RwLockWriteGuard<'_, T>, &mut AtomicBool) {
