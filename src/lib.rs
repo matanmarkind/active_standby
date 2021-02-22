@@ -34,7 +34,9 @@ pub mod primitives {
     pub use crate::write::{SendWriteGuard, SendWriter, UpdateTables, WriteGuard, Writer};
 }
 
+mod hashmap;
 mod vec;
 pub mod collections {
+    pub use crate::hashmap::hashmap;
     pub use crate::vec::vec;
 }
