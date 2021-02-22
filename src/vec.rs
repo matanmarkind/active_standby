@@ -105,6 +105,13 @@ pub mod vec {
         }
     }
 
+    struct Clear {}
+    impl<T> UpdateTables<Vec<T>, ()> for Clear {
+        fn apply_first(&mut self, table: &mut Vec<T>) {
+            table.clear()
+        }
+    }
+
     struct Pop {}
     impl<T> UpdateTables<Vec<T>, Option<T>> for Pop {
         fn apply_first(&mut self, table: &mut Vec<T>) -> Option<T> {
@@ -207,6 +214,9 @@ pub mod vec {
     }
 
     impl<'w, T> WriteGuard<'w, T> {
+        pub fn clear(&mut self) {
+            self.guard.update_tables(Clear {})
+        }
         pub fn pop(&mut self) -> Option<T> {
             self.guard.update_tables(Pop {})
         }
@@ -280,11 +290,32 @@ mod test {
 
         // When the write guard is dropped it publishes the changes to the readers.
         assert_eq!(*reader.read(), vec![2]);
-        {
-            let wg = writer.write();
-            assert_eq!(*wg, vec![2]);
-        }
+        assert_eq!(*writer.write(), vec![2]);
         assert_eq!(*reader.read(), vec![2]);
+    }
+
+    #[test]
+    fn clear() {
+        let mut writer = Writer::<i32>::new();
+        let reader = writer.new_reader();
+        assert_eq!(reader.read().len(), 0);
+
+        {
+            let mut wg = writer.write();
+            wg.push(2);
+            assert_eq!(wg.len(), 1);
+            assert_eq!(reader.read().len(), 0);
+        }
+
+        // When the write guard is dropped it publishes the changes to the readers.
+        assert_eq!(*reader.read(), vec![2]);
+        assert_eq!(*writer.write(), vec![2]);
+        assert_eq!(*reader.read(), vec![2]);
+
+        writer.write().clear();
+        assert_eq!(*reader.read(), vec![]);
+        assert_eq!(*writer.write(), vec![]);
+        assert_eq!(*reader.read(), vec![]);
     }
 
     #[test]
@@ -302,10 +333,7 @@ mod test {
 
         // When the write guard is dropped it publishes the changes to the readers.
         assert_eq!(*reader.read(), vec![2, 4]);
-        {
-            let wg = writer.write();
-            assert_eq!(*wg, vec![2, 4]);
-        }
+        assert_eq!(*writer.write(), vec![2, 4]);
         assert_eq!(*reader.read(), vec![2, 4]);
     }
 
@@ -321,10 +349,7 @@ mod test {
 
         // When the write guard is dropped it publishes the changes to the readers.
         assert_eq!(*reader.read(), vec![Box::new(2)]);
-        {
-            let wg = writer.write();
-            assert_eq!(*wg, vec![Box::new(2)]);
-        }
+        assert_eq!(*writer.write(), vec![Box::new(2)]);
         assert_eq!(*reader.read(), vec![Box::new(2)]);
     }
 
@@ -339,10 +364,7 @@ mod test {
         }
 
         assert!(reader.read().capacity() >= 123);
-        {
-            let wg = writer.write();
-            assert!(wg.capacity() >= 123);
-        }
+        assert!(writer.write().capacity() >= 123);
         assert!(reader.read().capacity() >= 123);
     }
 
@@ -357,10 +379,7 @@ mod test {
         }
 
         assert_eq!(reader.read().capacity(), 123);
-        {
-            let wg = writer.write();
-            assert_eq!(wg.capacity(), 123);
-        }
+        assert_eq!(writer.write().capacity(), 123);
         assert_eq!(reader.read().capacity(), 123);
     }
 
@@ -378,10 +397,7 @@ mod test {
         }
 
         assert_eq!(reader.read().capacity(), 2);
-        {
-            let wg = writer.write();
-            assert_eq!(wg.capacity(), 2);
-        }
+        assert_eq!(writer.write().capacity(), 2);
         assert_eq!(reader.read().capacity(), 2);
     }
 
@@ -399,10 +415,7 @@ mod test {
         }
 
         assert_eq!(*reader.read(), vec![0, 1, 2]);
-        {
-            let wg = writer.write();
-            assert_eq!(*wg, vec![0, 1, 2]);
-        }
+        assert_eq!(*writer.write(), vec![0, 1, 2]);
         assert_eq!(*reader.read(), vec![0, 1, 2]);
     }
 
@@ -420,10 +433,7 @@ mod test {
         }
 
         assert_eq!(*reader.read(), vec![0, 1, 4, 3]);
-        {
-            let wg = writer.write();
-            assert_eq!(*wg, vec![0, 1, 4, 3]);
-        }
+        assert_eq!(*writer.write(), vec![0, 1, 4, 3]);
         assert_eq!(*reader.read(), vec![0, 1, 4, 3]);
     }
 
@@ -443,10 +453,7 @@ mod test {
         }
 
         assert_eq!(*reader.read(), vec![0, 1, 10, 2, 3, 4]);
-        {
-            let wg = writer.write();
-            assert_eq!(*wg, vec![0, 1, 10, 2, 3, 4]);
-        }
+        assert_eq!(*writer.write(), vec![0, 1, 10, 2, 3, 4]);
         assert_eq!(*reader.read(), vec![0, 1, 10, 2, 3, 4]);
     }
 
@@ -464,10 +471,7 @@ mod test {
         }
 
         assert_eq!(*reader.read(), vec![0, 2, 4]);
-        {
-            let wg = writer.write();
-            assert_eq!(*wg, vec![0, 2, 4]);
-        }
+        assert_eq!(*writer.write(), vec![0, 2, 4]);
         assert_eq!(*reader.read(), vec![0, 2, 4]);
     }
 
@@ -485,10 +489,7 @@ mod test {
         }
 
         assert_eq!(*reader.read(), vec![1, 5]);
-        {
-            let wg = writer.write();
-            assert_eq!(*wg, vec![1, 5]);
-        }
+        assert_eq!(*writer.write(), vec![1, 5]);
         assert_eq!(*reader.read(), vec![1, 5]);
     }
 }
