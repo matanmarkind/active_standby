@@ -25,20 +25,23 @@ pub trait UpdateTables<T, R> {
 /// Writer doesn't actually own the underlying data, so if Writer is Dropped,
 /// this will not delete the tables. Instead they will only be dropped once all
 /// Readers and the Writer are dropped.
+/// 
+/// For examples of using Writer check out the tests in this file.
 pub struct Writer<T> {
     table: Arc<Table<T>>,
 
     /// Log of operations to be performed on the active table. This gets played
     /// on the standby table when creating a WriteGuard, as opposed to when
-    /// dropping it, as an optimization. This is in the hopes that by waiting
-    /// until the next time a WriteGuard is created, we give the reafmt::Debugders time to
-    /// switch to reading from the new active_table, with the goal of reducing
-    /// lock contention.
+    /// dropping it, to minimize lock contention. This is in the hopes that by
+    /// waiting until the next time a WriteGuard is created, we give the readers
+    /// time to switch to reading from the new active_table.
     ///
     /// We could make the Writer Send + Sync if we instead gave up on this
     /// optimization and moved ops_to_replay into WriteGuard, and had WriteGuard
     /// perform these ops on Drop. I think this optimization is worth the need
-    /// for the user to wrap Writer in a Mutex though.
+    /// for the user to use SendWriter and wrap it in a Mutex though. The Mutex
+    /// cost is minimal anyways since you will content on locking Writer instead
+    /// of Writer.write, so there is no added contention.
     ops_to_replay: Vec<Box<dyn FnOnce(&mut T)>>,
 }
 
@@ -74,8 +77,20 @@ impl<T> Writer<T> {
     /// 2. Replaying all of the updates that were applied to the last
     ///    WriteGuard.
     pub fn write(&mut self) -> WriteGuard<'_, T> {
-        // We rely on knowing that this is the only Writer and it can only call
-        // to 'write' when there are no existing WriteGuards.
+        // We rely on knowing that this is the only Writer (not Copy or Clone)
+        // and it can only call to 'write' when there are no existing
+        // WriteGuards (enforced by lifetimes). Since the next line is to grab
+        // a write guard and 'is_table0_active' is atomic, there isn't in
+        // practice thread unsafety if there were multiple Writers, but it
+        // could create contention:
+        // 1. write_guard1 begins drop. It first drops the actual write guard
+        //    to the table.
+        // 2. write_guard2 is created with a lock on the same table as
+        //    write_guard1 was using.
+        // 3. write_guard1 swaps the standby and active tables, and completes
+        //    its drop.
+        // 4. Readers now will try to get a read guard to the same table that
+        //    write_guard2 is holding.
         let table = unsafe {
             std::mem::transmute::<*const Table<T>, &mut Table<T>>(Arc::as_ptr(&self.table))
         };
@@ -113,13 +128,13 @@ impl<T: fmt::Debug> fmt::Debug for Writer<T> {
 /// lifecycle of a WriteGuard is as follows:
 /// 1. Creation - Write lock the standby_table and apply all updates on it via
 ///    'apply_second'. This consumes all of the udpates.
-/// 2. Lifetime - update the standby table synchronously as updates come in via
-///    'apply_first'. Updates are then held onto for the next WriteGuard
-///    creation in order to update the other table.
+/// 2. Duration - update the standby table synchronously as updates come in via
+///    'apply_first'. Updates are then held onto for the next WriteGuard to
+///    apply on the other table.
 /// 3. Drop - When a WriteGuard is dropped swap the active and standby tables,
 ///    publishing all of the updates to the Readers.
 ///
-/// Only 1 WriteGuard can exist at a time for a given Table.
+/// Only 1 WriteGuard can exist at a time.
 pub struct WriteGuard<'w, T> {
     standby_table: RwLockWriteGuard<'w, T>,
 
@@ -135,10 +150,10 @@ impl<'w, T> WriteGuard<'w, T> {
     /// Takes an update which will change the state of the underlying data. This
     /// is done through the interface of UpdateTables.
     ///
-    /// The return value can be anything that owns it's own data. This is as a
-    /// way to help enforce safety by preventing a user returning a &mut to the
-    /// underlying data and then manipulating that in a way that can't be
-    /// mimiced by apply_second.
+    /// The return value can be anything that owns it's own data. We don't all
+    /// the return value to be a reference to the data as a way to encourage
+    /// keeping the tables in sync. Since returning a &mut would allow users to
+    /// cause mutations outside of the update they pass.
     ///
     /// The update passed in must be valid for 'static because it will outlive
     /// the WriteGuard taking the update, so we can't make any limitations on
@@ -195,6 +210,8 @@ impl<'w, T: fmt::Debug> fmt::Debug for WriteGuard<'w, T> {
 ///
 /// The only difference between SendWriter and Writer is that update_tables
 /// requires that the update passed in be Send.
+///
+/// For examples with SendWriter check out the tests in the collections module.
 #[derive(Debug)]
 pub struct SendWriter<T> {
     writer: Writer<T>,
@@ -240,7 +257,7 @@ impl<T> std::ops::Deref for SendWriter<T> {
 /// - Vec<Updates> which is Send if the updates are.
 ///
 /// We enforce that all updates passed to a SendWriteGuard are Send, so
-/// therefore SendWriter is Send.
+/// therefore SendWriter is Send if T is.
 unsafe impl<T> Send for SendWriter<T> where T: Send {}
 
 /// Guard for a SendWriter, not a WriteGuard that is Send.
