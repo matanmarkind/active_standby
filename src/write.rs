@@ -177,10 +177,12 @@ impl<'w, T> Drop for WriteGuard<'w, T> {
         // never face contention.
         drop(&mut self.standby_table);
 
+        std::sync::atomic::fence(Ordering::Acquire);
+
         // Swap the active and standby tables.
         self.is_table0_active.store(
-            !self.is_table0_active.load(Ordering::Relaxed),
-            Ordering::Relaxed,
+            !self.is_table0_active.load(Ordering::Acquire),
+            Ordering::Acquire,
         );
     }
 }

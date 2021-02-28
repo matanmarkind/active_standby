@@ -52,5 +52,6 @@ mod hashmap;
 mod vec;
 pub mod collections {
     pub use crate::hashmap::hashmap;
+    pub use crate::bteemap::bteemap;
     pub use crate::vec::vec;
 }
