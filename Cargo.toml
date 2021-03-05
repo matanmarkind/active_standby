@@ -14,5 +14,3 @@ repository = "https://github.com/matanmarkind/active_standby"
 [dev-dependencies]
 maplit = "1.0.2"
 more-asserts = "0.2.1"
-
-# TODO: Add more data structures and comments.

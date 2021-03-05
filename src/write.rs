@@ -25,7 +25,7 @@ pub trait UpdateTables<T, R> {
 /// Writer doesn't actually own the underlying data, so if Writer is Dropped,
 /// this will not delete the tables. Instead they will only be dropped once all
 /// Readers and the Writer are dropped.
-/// 
+///
 /// For examples of using Writer check out the tests in this file.
 pub struct Writer<T> {
     table: Arc<Table<T>>,
@@ -177,12 +177,14 @@ impl<'w, T> Drop for WriteGuard<'w, T> {
         // never face contention.
         drop(&mut self.standby_table);
 
+        // Make sure that drop occurs before swapping active and standby. I'm
+        // really not so confident about my choice of Ordering here and below...
         std::sync::atomic::fence(Ordering::Acquire);
 
         // Swap the active and standby tables.
         self.is_table0_active.store(
             !self.is_table0_active.load(Ordering::Acquire),
-            Ordering::Acquire,
+            Ordering::Relaxed,
         );
     }
 }
