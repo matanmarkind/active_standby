@@ -1,11 +1,11 @@
 /// Implementation of BTreeMap for use in the active_standby model.
 ///
 /// Specifically this allows users to call mutating functions on the
-/// btreemap::WriteGuard like they would on a Vec. Functions that return a reference
-/// to data owned by the underlying Vec will have different return values
-/// because we don't allow tying return values to the underlying data to avoid
-/// ever returning a mutable reference which the reader will use to change the
-/// table without recording it.
+/// btreemap::WriteGuard like they would on a BTreeMap. Functions that return a
+/// reference to data owned by the underlying Vec will have different return
+/// values because we don't allow tying return values to the underlying data to
+/// avoid ever returning a mutable reference which the reader will use to change
+/// the table without recording it.
 
 pub mod btreemap {
     use crate::primitives;

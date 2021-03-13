@@ -38,3 +38,5 @@ We provide 2 modules:
 2. collections - these are common collections that use primitives to offer users
    an interface very similar to the collections themselves, but conforming to
    the requirements of active_standby.
+
+For examples, check out the tests from the collections.
