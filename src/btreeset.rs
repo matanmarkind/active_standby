@@ -12,186 +12,186 @@ pub mod btreeset {
     use crate::primitives::UpdateTables;
     use std::collections::BTreeSet;
 
-    pub struct Reader<K> {
-        reader: primitives::Reader<BTreeSet<K>>,
+    pub struct Reader<T> {
+        reader: primitives::Reader<BTreeSet<T>>,
     }
 
-    impl<K> Reader<K> {
-        pub fn read(&self) -> ReadGuard<'_, K> {
+    impl<T> Reader<T> {
+        pub fn read(&self) -> ReadGuard<'_, T> {
             ReadGuard {
                 guard: self.reader.read(),
             }
         }
     }
 
-    pub struct ReadGuard<'r, K> {
-        guard: primitives::ReadGuard<'r, BTreeSet<K>>,
+    pub struct ReadGuard<'r, T> {
+        guard: primitives::ReadGuard<'r, BTreeSet<T>>,
     }
 
-    impl<'r, K> std::ops::Deref for ReadGuard<'r, K> {
-        type Target = BTreeSet<K>;
+    impl<'r, T> std::ops::Deref for ReadGuard<'r, T> {
+        type Target = BTreeSet<T>;
         fn deref(&self) -> &Self::Target {
             &*self.guard
         }
     }
 
-    pub struct Writer<K> {
-        writer: primitives::SendWriter<BTreeSet<K>>,
+    pub struct Writer<T> {
+        writer: primitives::SendWriter<BTreeSet<T>>,
     }
 
-    impl<K> Writer<K>
+    impl<T> Writer<T>
     where
-        K: Clone + Ord,
+        T: Clone + Ord,
     {
-        pub fn new() -> Writer<K> {
+        pub fn new() -> Writer<T> {
             Writer {
                 writer: primitives::SendWriter::new(BTreeSet::new()),
             }
         }
     }
 
-    impl<K> Writer<K> {
-        pub fn write(&mut self) -> WriteGuard<'_, K> {
+    impl<T> Writer<T> {
+        pub fn write(&mut self) -> WriteGuard<'_, T> {
             WriteGuard {
                 guard: self.writer.write(),
             }
         }
-        pub fn new_reader(&self) -> Reader<K> {
+        pub fn new_reader(&self) -> Reader<T> {
             Reader {
                 reader: self.writer.new_reader(),
             }
         }
     }
 
-    pub struct WriteGuard<'w, K> {
-        guard: primitives::SendWriteGuard<'w, BTreeSet<K>>,
+    pub struct WriteGuard<'w, T> {
+        guard: primitives::SendWriteGuard<'w, BTreeSet<T>>,
     }
 
-    impl<'w, K> std::ops::Deref for WriteGuard<'w, K> {
-        type Target = BTreeSet<K>;
+    impl<'w, T> std::ops::Deref for WriteGuard<'w, T> {
+        type Target = BTreeSet<T>;
         fn deref(&self) -> &Self::Target {
             &*self.guard
         }
     }
 
-    struct Insert<K> {
-        key: K,
+    struct Insert<T> {
+        value: T,
     }
-    impl<K> UpdateTables<BTreeSet<K>, bool> for Insert<K>
+    impl<T> UpdateTables<BTreeSet<T>, bool> for Insert<T>
     where
-        K: Ord + Clone,
+        T: Ord + Clone,
     {
-        fn apply_first(&mut self, table: &mut BTreeSet<K>) -> bool {
-            table.insert(self.key.clone())
+        fn apply_first(&mut self, table: &mut BTreeSet<T>) -> bool {
+            table.insert(self.value.clone())
         }
-        fn apply_second(self: Box<Self>, table: &mut BTreeSet<K>) {
+        fn apply_second(self: Box<Self>, table: &mut BTreeSet<T>) {
             // Move the value instead of cloning.
-            table.insert(self.key);
+            table.insert(self.value);
         }
     }
 
-    struct Replace<K> {
-        key: K,
+    struct Replace<T> {
+        value: T,
     }
-    impl<K> UpdateTables<BTreeSet<K>, Option<K>> for Replace<K>
+    impl<T> UpdateTables<BTreeSet<T>, Option<T>> for Replace<T>
     where
-        K: Ord + Clone,
+        T: Ord + Clone,
     {
-        fn apply_first(&mut self, table: &mut BTreeSet<K>) -> Option<K> {
-            table.replace(self.key.clone())
+        fn apply_first(&mut self, table: &mut BTreeSet<T>) -> Option<T> {
+            table.replace(self.value.clone())
         }
-        fn apply_second(self: Box<Self>, table: &mut BTreeSet<K>) {
+        fn apply_second(self: Box<Self>, table: &mut BTreeSet<T>) {
             // Move the value instead of cloning.
-            table.replace(self.key);
+            table.replace(self.value);
         }
     }
 
     struct Clear {}
-    impl<K> UpdateTables<BTreeSet<K>, ()> for Clear
+    impl<T> UpdateTables<BTreeSet<T>, ()> for Clear
     where
-        K: Ord + Clone,
+        T: Ord + Clone,
     {
-        fn apply_first(&mut self, table: &mut BTreeSet<K>) {
+        fn apply_first(&mut self, table: &mut BTreeSet<T>) {
             table.clear()
         }
     }
 
     struct Remove<Q> {
-        key_like: Q,
+        value_like: Q,
     }
-    impl<K, Q> UpdateTables<BTreeSet<K>, bool> for Remove<Q>
+    impl<T, Q> UpdateTables<BTreeSet<T>, bool> for Remove<Q>
     where
         Q: Ord,
-        K: Ord + std::borrow::Borrow<Q>,
+        T: Ord + std::borrow::Borrow<Q>,
     {
-        fn apply_first(&mut self, table: &mut BTreeSet<K>) -> bool {
-            table.remove(&self.key_like)
+        fn apply_first(&mut self, table: &mut BTreeSet<T>) -> bool {
+            table.remove(&self.value_like)
         }
     }
 
     struct Take<Q> {
-        key_like: Q,
+        value_like: Q,
     }
-    impl<K, Q> UpdateTables<BTreeSet<K>, Option<K>> for Take<Q>
+    impl<T, Q> UpdateTables<BTreeSet<T>, Option<T>> for Take<Q>
     where
         Q: Ord,
-        K: Ord + std::borrow::Borrow<Q>,
+        T: Ord + std::borrow::Borrow<Q>,
     {
-        fn apply_first(&mut self, table: &mut BTreeSet<K>) -> Option<K> {
-            table.take(&self.key_like)
+        fn apply_first(&mut self, table: &mut BTreeSet<T>) -> Option<T> {
+            table.take(&self.value_like)
         }
     }
 
-    struct Append<K> {
-        other: BTreeSet<K>,
+    struct Append<T> {
+        other: BTreeSet<T>,
     }
-    impl<K> UpdateTables<BTreeSet<K>, ()> for Append<K>
+    impl<T> UpdateTables<BTreeSet<T>, ()> for Append<T>
     where
-        K: Ord + Clone,
+        T: Ord + Clone,
     {
-        fn apply_first(&mut self, table: &mut BTreeSet<K>) {
+        fn apply_first(&mut self, table: &mut BTreeSet<T>) {
             for k in self.other.iter() {
                 table.insert(k.clone());
             }
         }
-        fn apply_second(mut self: Box<Self>, table: &mut BTreeSet<K>) {
+        fn apply_second(mut self: Box<Self>, table: &mut BTreeSet<T>) {
             table.append(&mut self.other)
         }
     }
 
-    impl<'w, K> WriteGuard<'w, K>
+    impl<'w, T> WriteGuard<'w, T>
     where
-        K: 'static + Ord + Clone + Send,
+        T: 'static + Ord + Clone + Send,
     {
-        pub fn insert(&mut self, key: K) -> bool {
-            self.guard.update_tables(Insert { key })
+        pub fn insert(&mut self, value: T) -> bool {
+            self.guard.update_tables(Insert { value })
         }
 
-        pub fn replace(&mut self, key: K) -> Option<K> {
-            self.guard.update_tables(Replace { key })
+        pub fn replace(&mut self, value: T) -> Option<T> {
+            self.guard.update_tables(Replace { value })
         }
 
         pub fn clear(&mut self) {
             self.guard.update_tables(Clear {})
         }
 
-        pub fn remove<Q>(&mut self, key_like: Q) -> bool
+        pub fn remove<Q>(&mut self, value_like: Q) -> bool
         where
-            K: std::borrow::Borrow<Q>,
+            T: std::borrow::Borrow<Q>,
             Q: 'static + Ord + Send,
         {
-            self.guard.update_tables(Remove { key_like })
+            self.guard.update_tables(Remove { value_like })
         }
 
-        pub fn take<Q>(&mut self, key_like: Q) -> Option<K>
+        pub fn take<Q>(&mut self, value_like: Q) -> Option<T>
         where
-            K: std::borrow::Borrow<Q>,
+            T: std::borrow::Borrow<Q>,
             Q: 'static + Ord + Send,
         {
-            self.guard.update_tables(Take { key_like })
+            self.guard.update_tables(Take { value_like })
         }
 
-        pub fn append(&mut self, other: BTreeSet<K>) {
+        pub fn append(&mut self, other: BTreeSet<T>) {
             self.guard.update_tables(Append { other })
         }
     }

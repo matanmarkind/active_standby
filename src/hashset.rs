@@ -13,215 +13,215 @@ pub mod hashset {
     use std::collections::HashSet;
     use std::hash::Hash;
 
-    pub struct Reader<K> {
-        reader: primitives::Reader<HashSet<K>>,
+    pub struct Reader<T> {
+        reader: primitives::Reader<HashSet<T>>,
     }
 
-    impl<K> Reader<K> {
-        pub fn read(&self) -> ReadGuard<'_, K> {
+    impl<T> Reader<T> {
+        pub fn read(&self) -> ReadGuard<'_, T> {
             ReadGuard {
                 guard: self.reader.read(),
             }
         }
     }
 
-    pub struct ReadGuard<'r, K> {
-        guard: primitives::ReadGuard<'r, HashSet<K>>,
+    pub struct ReadGuard<'r, T> {
+        guard: primitives::ReadGuard<'r, HashSet<T>>,
     }
 
-    impl<'r, K> std::ops::Deref for ReadGuard<'r, K> {
-        type Target = HashSet<K>;
+    impl<'r, T> std::ops::Deref for ReadGuard<'r, T> {
+        type Target = HashSet<T>;
         fn deref(&self) -> &Self::Target {
             &*self.guard
         }
     }
 
-    pub struct Writer<K> {
-        writer: primitives::SendWriter<HashSet<K>>,
+    pub struct Writer<T> {
+        writer: primitives::SendWriter<HashSet<T>>,
     }
 
-    impl<K> Writer<K>
+    impl<T> Writer<T>
     where
-        K: Clone,
+        T: Clone,
     {
-        pub fn new() -> Writer<K> {
+        pub fn new() -> Writer<T> {
             Writer {
                 writer: primitives::SendWriter::new(HashSet::new()),
             }
         }
     }
 
-    impl<K> Writer<K> {
-        pub fn write(&mut self) -> WriteGuard<'_, K> {
+    impl<T> Writer<T> {
+        pub fn write(&mut self) -> WriteGuard<'_, T> {
             WriteGuard {
                 guard: self.writer.write(),
             }
         }
-        pub fn new_reader(&self) -> Reader<K> {
+        pub fn new_reader(&self) -> Reader<T> {
             Reader {
                 reader: self.writer.new_reader(),
             }
         }
     }
 
-    pub struct WriteGuard<'w, K> {
-        guard: primitives::SendWriteGuard<'w, HashSet<K>>,
+    pub struct WriteGuard<'w, T> {
+        guard: primitives::SendWriteGuard<'w, HashSet<T>>,
     }
 
-    impl<'w, K> std::ops::Deref for WriteGuard<'w, K> {
-        type Target = HashSet<K>;
+    impl<'w, T> std::ops::Deref for WriteGuard<'w, T> {
+        type Target = HashSet<T>;
         fn deref(&self) -> &Self::Target {
             &*self.guard
         }
     }
 
-    struct Insert<K> {
-        key: K,
+    struct Insert<T> {
+        value: T,
     }
-    impl<K> UpdateTables<HashSet<K>, bool> for Insert<K>
+    impl<T> UpdateTables<HashSet<T>, bool> for Insert<T>
     where
-        K: Eq + Hash + Clone,
+        T: Eq + Hash + Clone,
     {
-        fn apply_first(&mut self, table: &mut HashSet<K>) -> bool {
-            table.insert(self.key.clone())
+        fn apply_first(&mut self, table: &mut HashSet<T>) -> bool {
+            table.insert(self.value.clone())
         }
-        fn apply_second(self: Box<Self>, table: &mut HashSet<K>) {
+        fn apply_second(self: Box<Self>, table: &mut HashSet<T>) {
             // Move the value instead of cloning.
-            table.insert(self.key);
+            table.insert(self.value);
         }
     }
 
-    struct Replace<K> {
-        key: K,
+    struct Replace<T> {
+        value: T,
     }
-    impl<K> UpdateTables<HashSet<K>, Option<K>> for Replace<K>
+    impl<T> UpdateTables<HashSet<T>, Option<T>> for Replace<T>
     where
-        K: Eq + Hash + Clone,
+        T: Eq + Hash + Clone,
     {
-        fn apply_first(&mut self, table: &mut HashSet<K>) -> Option<K> {
-            table.replace(self.key.clone())
+        fn apply_first(&mut self, table: &mut HashSet<T>) -> Option<T> {
+            table.replace(self.value.clone())
         }
-        fn apply_second(self: Box<Self>, table: &mut HashSet<K>) {
+        fn apply_second(self: Box<Self>, table: &mut HashSet<T>) {
             // Move the value instead of cloning.
-            table.replace(self.key);
+            table.replace(self.value);
         }
     }
 
     struct Clear {}
-    impl<K> UpdateTables<HashSet<K>, ()> for Clear {
-        fn apply_first(&mut self, table: &mut HashSet<K>) {
+    impl<T> UpdateTables<HashSet<T>, ()> for Clear {
+        fn apply_first(&mut self, table: &mut HashSet<T>) {
             table.clear()
         }
     }
 
     struct Remove<Q> {
-        key_like: Q,
+        value_like: Q,
     }
-    impl<K, Q> UpdateTables<HashSet<K>, bool> for Remove<Q>
+    impl<T, Q> UpdateTables<HashSet<T>, bool> for Remove<Q>
     where
         Q: Eq + Hash,
-        K: Eq + Hash + std::borrow::Borrow<Q>,
+        T: Eq + Hash + std::borrow::Borrow<Q>,
     {
-        fn apply_first(&mut self, table: &mut HashSet<K>) -> bool {
-            table.remove(&self.key_like)
+        fn apply_first(&mut self, table: &mut HashSet<T>) -> bool {
+            table.remove(&self.value_like)
         }
     }
 
     struct Take<Q> {
-        key_like: Q,
+        value_like: Q,
     }
-    impl<K, Q> UpdateTables<HashSet<K>, Option<K>> for Take<Q>
+    impl<T, Q> UpdateTables<HashSet<T>, Option<T>> for Take<Q>
     where
         Q: Eq + Hash,
-        K: Eq + Hash + std::borrow::Borrow<Q>,
+        T: Eq + Hash + std::borrow::Borrow<Q>,
     {
-        fn apply_first(&mut self, table: &mut HashSet<K>) -> Option<K> {
-            table.take(&self.key_like)
+        fn apply_first(&mut self, table: &mut HashSet<T>) -> Option<T> {
+            table.take(&self.value_like)
         }
     }
 
     struct Reserve {
         additional: usize,
     }
-    impl<K> UpdateTables<HashSet<K>, ()> for Reserve
+    impl<T> UpdateTables<HashSet<T>, ()> for Reserve
     where
-        K: Eq + Hash,
+        T: Eq + Hash,
     {
-        fn apply_first(&mut self, table: &mut HashSet<K>) {
+        fn apply_first(&mut self, table: &mut HashSet<T>) {
             table.reserve(self.additional)
         }
     }
 
     struct ShrinkToFit {}
-    impl<K> UpdateTables<HashSet<K>, ()> for ShrinkToFit
+    impl<T> UpdateTables<HashSet<T>, ()> for ShrinkToFit
     where
-        K: Eq + Hash,
+        T: Eq + Hash,
     {
-        fn apply_first(&mut self, table: &mut HashSet<K>) {
+        fn apply_first(&mut self, table: &mut HashSet<T>) {
             table.shrink_to_fit()
         }
     }
 
     struct Drain {}
-    impl<K> UpdateTables<HashSet<K>, HashSet<K>> for Drain
+    impl<T> UpdateTables<HashSet<T>, HashSet<T>> for Drain
     where
-        K: Eq + Hash,
+        T: Eq + Hash,
     {
-        fn apply_first(&mut self, table: &mut HashSet<K>) -> HashSet<K> {
+        fn apply_first(&mut self, table: &mut HashSet<T>) -> HashSet<T> {
             table.drain().collect()
         }
     }
 
-    struct Retain<K, F>
+    struct Retain<T, F>
     where
-        F: 'static + Clone + FnMut(&K) -> bool,
+        F: 'static + Clone + FnMut(&T) -> bool,
     {
         f: F,
-        _compile_k_v: std::marker::PhantomData<K>,
+        _compile_k_v: std::marker::PhantomData<T>,
     }
-    impl<K, F> UpdateTables<HashSet<K>, ()> for Retain<K, F>
+    impl<T, F> UpdateTables<HashSet<T>, ()> for Retain<T, F>
     where
-        K: Eq + Hash,
-        F: 'static + Clone + FnMut(&K) -> bool,
+        T: Eq + Hash,
+        F: 'static + Clone + FnMut(&T) -> bool,
     {
-        fn apply_first(&mut self, table: &mut HashSet<K>) {
+        fn apply_first(&mut self, table: &mut HashSet<T>) {
             table.retain(self.f.clone())
         }
-        fn apply_second(self: Box<Self>, table: &mut HashSet<K>) {
+        fn apply_second(self: Box<Self>, table: &mut HashSet<T>) {
             table.retain(self.f)
         }
     }
 
-    impl<'w, K> WriteGuard<'w, K>
+    impl<'w, T> WriteGuard<'w, T>
     where
-        K: 'static + Eq + Hash + Clone + Send,
+        T: 'static + Eq + Hash + Clone + Send,
     {
-        pub fn insert(&mut self, key: K) -> bool {
-            self.guard.update_tables(Insert { key })
+        pub fn insert(&mut self, value: T) -> bool {
+            self.guard.update_tables(Insert { value })
         }
 
-        pub fn replace(&mut self, key: K) -> Option<K> {
-            self.guard.update_tables(Replace { key })
+        pub fn replace(&mut self, value: T) -> Option<T> {
+            self.guard.update_tables(Replace { value })
         }
 
         pub fn clear(&mut self) {
             self.guard.update_tables(Clear {})
         }
 
-        pub fn remove<Q>(&mut self, key_like: Q) -> bool
+        pub fn remove<Q>(&mut self, value_like: Q) -> bool
         where
-            K: std::borrow::Borrow<Q>,
+            T: std::borrow::Borrow<Q>,
             Q: 'static + Hash + Eq + Send,
         {
-            self.guard.update_tables(Remove { key_like })
+            self.guard.update_tables(Remove { value_like })
         }
 
-        pub fn take<Q>(&mut self, key_like: Q) -> Option<K>
+        pub fn take<Q>(&mut self, value_like: Q) -> Option<T>
         where
-            K: std::borrow::Borrow<Q>,
+            T: std::borrow::Borrow<Q>,
             Q: 'static + Hash + Eq + Send,
         {
-            self.guard.update_tables(Take { key_like })
+            self.guard.update_tables(Take { value_like })
         }
 
         pub fn reserve(&mut self, additional: usize) {
@@ -232,13 +232,13 @@ pub mod hashset {
             self.guard.update_tables(ShrinkToFit {})
         }
 
-        pub fn drain(&mut self) -> HashSet<K> {
+        pub fn drain(&mut self) -> HashSet<T> {
             self.guard.update_tables(Drain {})
         }
 
         pub fn retain<F>(&mut self, f: F)
         where
-            F: 'static + Send + Clone + FnMut(&K) -> bool,
+            F: 'static + Send + Clone + FnMut(&T) -> bool,
         {
             self.guard.update_tables(Retain {
                 f,
