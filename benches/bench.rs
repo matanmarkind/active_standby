@@ -5,6 +5,7 @@
 // https://doc.rust-lang.org/nightly/edition-guide/rust-2018/module-system/path-clarity.html
 extern crate test;
 use active_standby::primitives::*;
+use more_asserts::*;
 
 struct AddOne {}
 impl UpdateTables<i32, ()> for AddOne {
@@ -103,7 +104,7 @@ fn read_guard_write_contention(b: &mut test::bench::Bencher) {
 
     b.iter(|| {
         let rg = reader.read();
-        assert!(*rg > 0);
+        assert_gt!(*rg, 0);
     });
 }
 
@@ -129,6 +130,6 @@ fn read_guard_readwrite_contention(b: &mut test::bench::Bencher) {
 
     b.iter(|| {
         let rg = reader.read();
-        assert!(*rg > 0);
+        assert_gt!(*rg, 0);
     });
 }
