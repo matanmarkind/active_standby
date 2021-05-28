@@ -39,7 +39,7 @@ impl<T> Drop for RwLockWriteGuard<'_, T> {
         // TODO: Look into relaxing the ordering.
         self.is_table0_active.store(
             !self.is_table0_active.load(Ordering::SeqCst),
-            Ordering::Relaxed,
+            Ordering::SeqCst,
         );
     }
 }
