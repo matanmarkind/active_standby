@@ -1,6 +1,70 @@
-use crate::types::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::fmt;
 use std::sync;
 use sync::atomic::{AtomicBool, Ordering};
+
+// TODO: Consider using crossbeam-utils sharded RwLock since it's optimized for fast
+// reads. Since reads should never be contested a faster read implementation
+// seems good. The slower write lock shouldn't be an issue since the slowness on
+// writes that I am worried about is due to reader threads still holding the new
+// 'standby_table' when we try to create a new WriteGuard.
+
+// Define locally the lock types used incase we want to switch to a different
+// implementation.
+pub type RwLock<T> = std::sync::RwLock<T>;
+pub type RwLockReadGuard<'r, T> = std::sync::RwLockReadGuard<'r, T>;
+
+// Struct which handled write locking the table. Meant to look identical to the
+// standard RwLockWriteGuard, except that internally it makes sure to swap the
+// active and standby tables when dropped.
+//
+// TODO: consider adding T: ?Sized + 'a like std::sync::RwLockWriteGuard.
+pub struct RwLockWriteGuard<'a, T> {
+    standby_table: std::sync::RwLockWriteGuard<'a, T>,
+    is_table0_active: &'a AtomicBool,
+}
+
+/// When the RwLockWriteGuard is dropped we swap the active and standby tables. We
+/// don't update the new standby table until a new RwLockWriteGuard is created.
+impl<T> Drop for RwLockWriteGuard<'_, T> {
+    fn drop(&mut self) {
+        // Make sure to drop the write guard first to guarantee that readers
+        // never face contention.
+        drop(&mut self.standby_table);
+
+        // Make sure that drop occurs before swapping active and standby.
+        // TODO: Look into relaxing the ordering.
+        std::sync::atomic::fence(Ordering::SeqCst);
+
+        // Swap the active and standby tables.
+        // TODO: Look into relaxing the ordering.
+        self.is_table0_active.store(
+            !self.is_table0_active.load(Ordering::SeqCst),
+            Ordering::Relaxed,
+        );
+    }
+}
+
+impl<'w, T> std::ops::Deref for RwLockWriteGuard<'w, T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &*self.standby_table
+    }
+}
+
+impl<'w, T> std::ops::DerefMut for RwLockWriteGuard<'w, T> {
+    fn deref_mut(&mut self) -> &mut T {
+        &mut *self.standby_table
+    }
+}
+
+impl<'w, T: fmt::Debug> fmt::Debug for RwLockWriteGuard<'w, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RwLockWriteGuard")
+            .field("is_table0_active", &self.is_table0_active)
+            .field("standby_table", &self.standby_table)
+            .finish()
+    }
+}
 
 pub struct Table<T> {
     // Possible alternative design is to stop having the bool, and instead have
@@ -28,20 +92,24 @@ unsafe impl<T> Sync for Table<T> where T: Send {}
 
 impl<T> Table<T> {
     // Return the peices needed by a WriteGuard.
-    pub fn write_guard(&mut self) -> (RwLockWriteGuard<'_, T>, &mut AtomicBool) {
-        let standby_table = if self.is_table0_active.load(Ordering::Relaxed) {
+    // TODO: Write my own WriteGuard which handles the bool on drop.
+    pub fn write_guard(&mut self) -> RwLockWriteGuard<'_, T> {
+        let standby_table = if self.is_table0_active.load(Ordering::SeqCst) {
             self.table1.write()
         } else {
             self.table0.write()
         };
 
-        (standby_table.unwrap(), &mut self.is_table0_active)
+        RwLockWriteGuard {
+            standby_table: standby_table.unwrap(),
+            is_table0_active: &mut self.is_table0_active,
+        }
     }
 
     // Return the pieces needed by a ReadGuard. A read guard to the
     // active_table.
     pub fn read_guard(&self) -> RwLockReadGuard<'_, T> {
-        if self.is_table0_active.load(Ordering::Relaxed) {
+        if self.is_table0_active.load(Ordering::SeqCst) {
             self.table0.read().unwrap()
         } else {
             self.table1.read().unwrap()

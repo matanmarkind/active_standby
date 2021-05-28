@@ -1,8 +1,6 @@
 use crate::read::Reader;
-use crate::table::Table;
-use crate::types::RwLockWriteGuard;
+use crate::table::{RwLockWriteGuard, Table};
 use std::fmt;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 /// Operations that update that data held internally must implement this
@@ -97,7 +95,7 @@ impl<T> Writer<T> {
 
         // Replay all ops on the standby table. This will hang until all readers
         // have returned their read guard.
-        let (mut standby_table, is_table0_active) = table.write_guard();
+        let mut standby_table = table.write_guard();
         for op in self.ops_to_replay.drain(..) {
             op(&mut standby_table);
         }
@@ -106,7 +104,6 @@ impl<T> Writer<T> {
         WriteGuard {
             standby_table,
             ops_to_replay: &mut self.ops_to_replay,
-            is_table0_active,
         }
     }
 
@@ -141,9 +138,6 @@ pub struct WriteGuard<'w, T> {
     // Record the ops that were applied to standby_table to be replayed the next
     // time we create a WriteGuard.
     ops_to_replay: &'w mut Vec<Box<dyn FnOnce(&mut T)>>,
-
-    // Updated at drop.
-    is_table0_active: &'w mut AtomicBool,
 }
 
 impl<'w, T> WriteGuard<'w, T> {
@@ -169,26 +163,6 @@ impl<'w, T> WriteGuard<'w, T> {
     }
 }
 
-/// When the WriteGuard is dropped we swap the active and standby tables. We
-/// don't update the new standby table until a new WriteGuard is created.
-impl<'w, T> Drop for WriteGuard<'w, T> {
-    fn drop(&mut self) {
-        // Make sure to drop the write guard first to guarantee that readers
-        // never face contention.
-        drop(&mut self.standby_table);
-
-        // Make sure that drop occurs before swapping active and standby. I'm
-        // really not so confident about my choice of Ordering here and below...
-        std::sync::atomic::fence(Ordering::Acquire);
-
-        // Swap the active and standby tables.
-        self.is_table0_active.store(
-            !self.is_table0_active.load(Ordering::Acquire),
-            Ordering::Relaxed,
-        );
-    }
-}
-
 /// Dereferencing the WriteGuard will let you see the state of the
 /// standby_table. If you want to inspect the state of the active_table you must
 /// go through a Reader.
@@ -203,7 +177,6 @@ impl<'w, T: fmt::Debug> fmt::Debug for WriteGuard<'w, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("WriteGuard")
             .field("num_ops_to_replay", &self.ops_to_replay.len())
-            .field("is_table0_active", &self.is_table0_active)
             .field("standby_table", &self.standby_table)
             .finish()
     }
@@ -453,7 +426,7 @@ mod test {
             wg.update_tables(PushVec { value: 2 });
             assert_eq!(
                 format!("{:?}", wg),
-                "WriteGuard { num_ops_to_replay: 1, is_table0_active: true, standby_table: RwLockWriteGuard { lock: RwLock { data: <locked> } } }");
+                "WriteGuard { num_ops_to_replay: 1, standby_table: RwLockWriteGuard { is_table0_active: true, standby_table: RwLockWriteGuard { lock: RwLock { data: <locked> } } } }");
         }
         assert_eq!(
             format!("{:?}", writer),

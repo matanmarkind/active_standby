@@ -45,7 +45,6 @@
 
 mod read;
 mod table;
-mod types;
 mod write;
 pub mod primitives {
     pub use crate::read::{ReadGuard, Reader};

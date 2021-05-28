@@ -1,5 +1,4 @@
-use crate::table::Table;
-use crate::types::RwLockReadGuard;
+use crate::table::{RwLockReadGuard, Table};
 use std::fmt;
 use std::sync::Arc;
 
