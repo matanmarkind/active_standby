@@ -25,14 +25,14 @@ impl<T> Reader<T> {
     }
 
     pub fn read(&self) -> ReadGuard<'_, T> {
-        self.table.read_guard()
+        self.table.read()
     }
 }
 
 impl<T: fmt::Debug> fmt::Debug for Reader<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Reader")
-            .field("read_guard", &self.read())
+            .field("read", &self.read())
             .finish()
     }
 }

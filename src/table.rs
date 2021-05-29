@@ -93,7 +93,7 @@ unsafe impl<T> Sync for Table<T> where T: Send {}
 impl<T> Table<T> {
     // Return the peices needed by a WriteGuard.
     // TODO: Write my own WriteGuard which handles the bool on drop.
-    pub fn write_guard(&mut self) -> RwLockWriteGuard<'_, T> {
+    pub fn write(&mut self) -> RwLockWriteGuard<'_, T> {
         let standby_table = if self.is_table0_active.load(Ordering::SeqCst) {
             self.table1.write()
         } else {
@@ -108,7 +108,7 @@ impl<T> Table<T> {
 
     // Return the pieces needed by a ReadGuard. A read guard to the
     // active_table.
-    pub fn read_guard(&self) -> RwLockReadGuard<'_, T> {
+    pub fn read(&self) -> RwLockReadGuard<'_, T> {
         if self.is_table0_active.load(Ordering::SeqCst) {
             self.table0.read().unwrap()
         } else {

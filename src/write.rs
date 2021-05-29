@@ -95,7 +95,7 @@ impl<T> Writer<T> {
 
         // Replay all ops on the standby table. This will hang until all readers
         // have returned their read guard.
-        let mut standby_table = table.write_guard();
+        let mut standby_table = table.write();
         for op in self.ops_to_replay.drain(..) {
             op(&mut standby_table);
         }
