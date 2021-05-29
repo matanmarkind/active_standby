@@ -1,6 +1,6 @@
+use crossbeam;
 use std::fmt;
-use std::sync;
-use sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 // TODO: Consider using crossbeam-utils sharded RwLock since it's optimized for fast
 // reads. Since reads should never be contested a faster read implementation
@@ -10,8 +10,8 @@ use sync::atomic::{AtomicBool, Ordering};
 
 // Define locally the lock types used incase we want to switch to a different
 // implementation.
-pub type RwLock<T> = std::sync::RwLock<T>;
-pub type RwLockReadGuard<'r, T> = std::sync::RwLockReadGuard<'r, T>;
+pub type RwLock<T> = crossbeam::sync::ShardedLock<T>;
+pub type RwLockReadGuard<'r, T> = crossbeam::sync::ShardedLockReadGuard<'r, T>;
 
 // Struct which handled write locking the table. Meant to look identical to the
 // standard RwLockWriteGuard, except that internally it makes sure to swap the
@@ -19,7 +19,7 @@ pub type RwLockReadGuard<'r, T> = std::sync::RwLockReadGuard<'r, T>;
 //
 // TODO: consider adding T: ?Sized + 'a like std::sync::RwLockWriteGuard.
 pub struct RwLockWriteGuard<'a, T> {
-    standby_table: std::sync::RwLockWriteGuard<'a, T>,
+    standby_table: crossbeam::sync::ShardedLockWriteGuard<'a, T>,
     is_table0_active: &'a AtomicBool,
 }
 

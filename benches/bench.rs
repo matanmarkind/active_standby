@@ -108,17 +108,38 @@ fn read_guard_write_contention(b: &mut test::bench::Bencher) {
     });
 }
 
+// Test the speed of acquiring the ReadGuard when there is no writer activity,
+// but many other readers.
 #[bench]
-fn read_guard_readwrite_contention(b: &mut test::bench::Bencher) {
+fn read_guard_writehold_contention(b: &mut test::bench::Bencher) {
     let mut writer = SendWriter::<i32>::new(1);
     let reader = writer.new_reader();
-    let _reader_handles: Vec<_> = (0..20)
+    let _writer_handle = std::thread::spawn(move || loop {
+        let mut wg = writer.write();
+        wg.update_tables(AddOne {});
+
+        // Make the write guard long lived to check if its existence causes the
+        // reader issues. Can help differentiate cache-ing from deadlock when
+        // compared with read_guard_write_contention.
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    });
+
+    b.iter(|| {
+        let rg = reader.read();
+        assert_gt!(*rg, 0);
+    });
+}
+
+fn read_guard_readwrite_contention(b: &mut test::bench::Bencher, num_readers: u32) {
+    let mut writer = SendWriter::<i32>::new(1);
+    let reader = writer.new_reader();
+    let _reader_handles: Vec<_> = (0..num_readers)
         .map(|_| {
             let reader = writer.new_reader();
             std::thread::spawn(move || {
                 // Continually grab read guards.
                 while *reader.read() != 0 {
-                    std::thread::sleep(std::time::Duration::from_millis(10));
+                    std::thread::sleep(std::time::Duration::from_micros(100));
                 }
             })
         })
@@ -132,4 +153,29 @@ fn read_guard_readwrite_contention(b: &mut test::bench::Bencher) {
         let rg = reader.read();
         assert_gt!(*rg, 0);
     });
+}
+
+#[bench]
+fn read_guard_readwrite_contention_1(b: &mut test::bench::Bencher) {
+    read_guard_readwrite_contention(b, 1);
+}
+
+#[bench]
+fn read_guard_readwrite_contention_10(b: &mut test::bench::Bencher) {
+    read_guard_readwrite_contention(b, 10);
+}
+
+#[bench]
+fn read_guard_readwrite_contention_20(b: &mut test::bench::Bencher) {
+    read_guard_readwrite_contention(b, 20);
+}
+
+#[bench]
+fn read_guard_readwrite_contention_30(b: &mut test::bench::Bencher) {
+    read_guard_readwrite_contention(b, 30);
+}
+
+#[bench]
+fn read_guard_readwrite_contention_40(b: &mut test::bench::Bencher) {
+    read_guard_readwrite_contention(b, 40);
 }
