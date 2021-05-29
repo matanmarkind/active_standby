@@ -18,17 +18,10 @@ writers is:
 
 The usage is meant to be similar to a RwLock. Instead of multiple threads
 holding an RwLock though and calling read/write, there is a single Writer that
-acquire a write guard to the tables, and N Readers which can acquire read guards
-to the tables. Some of the inspiration came from the left_right crate, so feel
-free to check that out. We don't implement aliasing, so each table is a true
-deepcopy of the other. We also don't optimize for startup.
-
-Minimizing lock contention also makes batching a more effective strategy for
-Reader performance. Now you can grab a ReadGuard, and handle multiple requests
-without worrying about starving the writer since it will be able to work on the
-standby table. This means multiple requests can be handled without having to
-relock the active_table. Similarly you can batch with the Writer without
-starving the Readers.
+acquires a write guard to the tables, and N Readers which can acquire read
+guards to the tables. Some of the inspiration came from the left_right crate, so
+feel free to check that out. We don't implement aliasing, so each table is a
+true deepcopy of the other. We also don't optimize for startup.
 
 Creation is done through the Writer, which can then spawn Readers (Readers
 are clonable).
