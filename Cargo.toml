@@ -1,6 +1,6 @@
 [package]
 name = "active_standby"
-version = "0.5.0"
+version = "0.5.1"
 authors = ["Matan Markind <matan.markind@gmail.com>"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
