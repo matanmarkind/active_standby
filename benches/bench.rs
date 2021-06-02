@@ -130,6 +130,29 @@ fn read_guard_writehold_contention(b: &mut test::bench::Bencher) {
     });
 }
 
+#[bench]
+fn plain_atomicbool(b: &mut test::bench::Bencher) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    let ref1 = Arc::new(AtomicBool::new(false));
+    let ref2 = Arc::clone(&ref1);
+
+    std::thread::spawn(move || loop {
+        ref1.store(!ref1.load(Ordering::SeqCst), Ordering::SeqCst);
+    });
+
+    b.iter(|| {
+        let val = ref2.load(Ordering::SeqCst);
+        let n = test::black_box(true);
+        if val == n {
+            assert_eq!(val, true);
+        } else {
+            assert_eq!(val, false);
+        }
+    });
+}
+
 fn read_guard_readwrite_contention(b: &mut test::bench::Bencher, num_readers: u32) {
     let mut writer = SendWriter::<i32>::new(1);
     let reader = writer.new_reader();
@@ -179,3 +202,17 @@ fn read_guard_readwrite_contention_30(b: &mut test::bench::Bencher) {
 fn read_guard_readwrite_contention_40(b: &mut test::bench::Bencher) {
     read_guard_readwrite_contention(b, 40);
 }
+
+// Benchmark results:
+// test plain_atomicbool                   ... bench:          15 ns/iter (+/- 4)
+// test read_guard_no_contention           ... bench:          35 ns/iter (+/- 2)
+// test read_guard_read_contention         ... bench:          35 ns/iter (+/- 3)
+// test read_guard_readwrite_contention_1  ... bench:         152 ns/iter (+/- 10)
+// test read_guard_readwrite_contention_10 ... bench:         161 ns/iter (+/- 64)
+// test read_guard_readwrite_contention_20 ... bench:         115 ns/iter (+/- 96)
+// test read_guard_readwrite_contention_30 ... bench:         100 ns/iter (+/- 117)
+// test read_guard_readwrite_contention_40 ... bench:         111 ns/iter (+/- 343)
+// test read_guard_write_contention        ... bench:         102 ns/iter (+/- 101)
+// test read_guard_writehold_contention    ... bench:          58 ns/iter (+/- 2)
+// test write_guard_with_contention        ... bench:         546 ns/iter (+/- 82,755)
+// test write_guard_without_contention     ... bench:         414 ns/iter (+/- 4,930)

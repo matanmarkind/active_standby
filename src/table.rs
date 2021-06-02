@@ -15,6 +15,7 @@ pub type RwLockReadGuard<'r, T> = crossbeam::sync::ShardedLockReadGuard<'r, T>;
 pub struct RwLockWriteGuard<'a, T> {
     standby_table: crossbeam::sync::ShardedLockWriteGuard<'a, T>,
     is_table0_active: &'a AtomicBool,
+    is_table0_active_cached: bool,
 }
 
 /// When the RwLockWriteGuard is dropped we swap the active and standby tables. We
@@ -31,10 +32,13 @@ impl<T> Drop for RwLockWriteGuard<'_, T> {
 
         // Swap the active and standby tables.
         // TODO: Look into relaxing the ordering.
-        self.is_table0_active.store(
-            !self.is_table0_active.load(Ordering::SeqCst),
+        let res = self.is_table0_active.compare_exchange(
+            self.is_table0_active_cached,
+            !self.is_table0_active_cached,
+            Ordering::SeqCst,
             Ordering::SeqCst,
         );
+        assert_eq!(res, Ok(self.is_table0_active_cached));
     }
 }
 
@@ -88,7 +92,8 @@ impl<T> Table<T> {
     // Return the peices needed by a WriteGuard.
     // TODO: Write my own WriteGuard which handles the bool on drop.
     pub fn write(&mut self) -> RwLockWriteGuard<'_, T> {
-        let standby_table = if self.is_table0_active.load(Ordering::SeqCst) {
+        let is_table0_active_cached = self.is_table0_active.load(Ordering::SeqCst);
+        let standby_table = if is_table0_active_cached {
             self.table1.write()
         } else {
             self.table0.write()
@@ -97,6 +102,7 @@ impl<T> Table<T> {
         RwLockWriteGuard {
             standby_table: standby_table.unwrap(),
             is_table0_active: &mut self.is_table0_active,
+            is_table0_active_cached,
         }
     }
 
