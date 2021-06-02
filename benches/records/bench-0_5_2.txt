@@ -1,0 +1,63 @@
+
+running 41 tests
+test btreemap::test::append ... ignored
+test btreemap::test::clear ... ignored
+test btreemap::test::insert ... ignored
+test btreemap::test::remove ... ignored
+test btreemap::test::remove_entry ... ignored
+test btreeset::test::append ... ignored
+test btreeset::test::clear ... ignored
+test btreeset::test::insert ... ignored
+test btreeset::test::remove_and_take ... ignored
+test hashmap::test::clear ... ignored
+test hashmap::test::drain ... ignored
+test hashmap::test::insert ... ignored
+test hashmap::test::remove ... ignored
+test hashmap::test::remove_entry ... ignored
+test hashmap::test::retain ... ignored
+test hashmap::test::shrink_to_fit_and_reserve ... ignored
+test hashset::test::clear ... ignored
+test hashset::test::drain ... ignored
+test hashset::test::insert_and_replace ... ignored
+test hashset::test::remove_and_take ... ignored
+test hashset::test::retain ... ignored
+test hashset::test::shrink_to_fit_and_reserve ... ignored
+test vec::test::clear ... ignored
+test vec::test::drain ... ignored
+test vec::test::indirect_type ... ignored
+test vec::test::insert ... ignored
+test vec::test::pop ... ignored
+test vec::test::push ... ignored
+test vec::test::reserve ... ignored
+test vec::test::reserve_exact ... ignored
+test vec::test::retain ... ignored
+test vec::test::shrink_to_fit ... ignored
+test vec::test::swap_remove ... ignored
+test vec::test::truncate ... ignored
+test write::test::debug_str ... ignored
+test write::test::multi_apply ... ignored
+test write::test::multi_publish ... ignored
+test write::test::multi_thread ... ignored
+test write::test::one_guard ... ignored
+test write::test::publish_update ... ignored
+test write::test::writer_dropped ... ignored
+
+test result: ok. 0 passed; 0 failed; 41 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 12 tests
+test plain_atomicbool                   ... bench:          14 ns/iter (+/- 1)
+test read_guard_no_contention           ... bench:          35 ns/iter (+/- 2)
+test read_guard_read_contention         ... bench:          37 ns/iter (+/- 0)
+test read_guard_readwrite_contention_1  ... bench:         151 ns/iter (+/- 5)
+test read_guard_readwrite_contention_10 ... bench:         177 ns/iter (+/- 50)
+test read_guard_readwrite_contention_20 ... bench:         157 ns/iter (+/- 135)
+test read_guard_readwrite_contention_30 ... bench:          89 ns/iter (+/- 67)
+test read_guard_readwrite_contention_40 ... bench:         124 ns/iter (+/- 179)
+test read_guard_write_contention        ... bench:          99 ns/iter (+/- 79)
+test read_guard_writehold_contention    ... bench:          56 ns/iter (+/- 46)
+test write_guard_with_contention        ... bench:       4,215 ns/iter (+/- 86,352)
+test write_guard_without_contention     ... bench:         389 ns/iter (+/- 4,076)
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 12 measured; 0 filtered out; finished in 47.29s
+
