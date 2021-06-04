@@ -10,8 +10,8 @@ repository = "https://github.com/matanmarkind/active_standby"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-crossbeam = "0.8.0"
+slab = "0.4.3"
+more-asserts = "0.2.1"
 
 [dev-dependencies]
 maplit = "1.0.2"
-more-asserts = "0.2.1"

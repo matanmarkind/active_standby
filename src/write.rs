@@ -1,7 +1,10 @@
-use crate::read::Reader;
-use crate::table::{RwLockWriteGuard, Table};
+use crate::read::{Reader, ReaderEpochInfos};
+use crate::table::{Table, TableWriteGuard};
+use more_asserts::*;
+use slab::Slab;
 use std::fmt;
-use std::sync::Arc;
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
 
 /// Operations that update that data held internally must implement this
 /// interface.
@@ -26,7 +29,17 @@ pub trait UpdateTables<T, R> {
 ///
 /// For examples of using Writer check out the tests in this file.
 pub struct Writer<T> {
+    // The underlying tables. This struct is responsible for returning the
+    // correct active/standby table, and also for swapping them when the
+    // TableWriteGuard is dropped. This table is not responsible for sync'ing
+    // across writers and readers, that is left to the Writer, to guarantee that
+    // there are no ReadGuards pointing to the standby_table.
     table: Arc<Table<T>>,
+
+    /// Information about each of the readers. Used by the Writer and Readers to
+    /// synchronize so that the Writer never mutates a table that a ReadGuard is
+    /// pointing to.
+    readers: ReaderEpochInfos,
 
     /// Log of operations to be performed on the active table. This gets played
     /// on the standby table when creating a WriteGuard, as opposed to when
@@ -38,7 +51,7 @@ pub struct Writer<T> {
     /// optimization and moved ops_to_replay into WriteGuard, and had WriteGuard
     /// perform these ops on Drop. I think this optimization is worth the need
     /// for the user to use SendWriter and wrap it in a Mutex though. The Mutex
-    /// cost is minimal anyways since you will content on locking Writer instead
+    /// cost is minimal anyways since you will contend on locking Writer instead
     /// of Writer.write, so there is no added contention.
     ops_to_replay: Vec<Box<dyn FnOnce(&mut T)>>,
 }
@@ -50,7 +63,8 @@ where
     pub fn new(t: T) -> Writer<T> {
         Writer {
             table: Arc::new(Table::new(t)),
-            ops_to_replay: vec![],
+            readers: Arc::new(Mutex::new(Slab::with_capacity(1024))),
+            ops_to_replay: Vec::new(),
         }
     }
 }
@@ -65,6 +79,55 @@ where
 }
 
 impl<T> Writer<T> {
+    // Hangs until the standby table has no readers pointing to it, meaning it
+    // is safe for updating.
+    pub fn await_standby_table_free(&mut self) {
+        // Iterate through the readers to check if there are any that will block
+        // the writer.
+        let mut blocking_readers = std::collections::HashSet::<usize>::new();
+
+        // We start here instead of simply building blocking_readers out of all
+        // keys as an optimistic optimization. This way if there is no-one
+        // blocking the writer we don't have to spend time building the HashSet
+        // (specifically hoping that this avoids any memory allocations.).
+        for (key, info) in self.readers.lock().unwrap().iter() {
+            let epoch = info.epoch.load(Ordering::Acquire);
+            let first_epoch_after_update = info.first_epoch_after_update.load(Ordering::Acquire);
+
+            // If the epoch has increased since this readers table was
+            // swapped, then this means the reader has moved on to using the
+            // new table. If the epoch was odd after the update, then this
+            // means that the reader wasn't using the standby table at some
+            // point since the swap, meaning that the current or next usage
+            // must be from the new active table.
+            if epoch <= first_epoch_after_update && first_epoch_after_update % 2 != 0 {
+                blocking_readers.insert(key);
+            }
+        }
+
+        // Wait until no reader is making use of the standby table.
+        while !blocking_readers.is_empty() {
+            blocking_readers.retain(|key| {
+                let info = self.readers.lock().unwrap()[*key].clone();
+                let epoch = info.epoch.load(Ordering::Acquire);
+                let first_epoch_after_update =
+                    info.first_epoch_after_update.load(Ordering::Acquire);
+
+                epoch <= first_epoch_after_update && first_epoch_after_update % 2 != 0
+            });
+
+            // Make sure that the above check and the readers lock going out of
+            // scope happens before the next check and yield.
+            std::sync::atomic::fence(Ordering::SeqCst);
+
+            if !blocking_readers.is_empty() {
+                // Instead of busy looping we will yield this thread and come
+                // back when the OS returns to us.
+                std::thread::yield_now();
+            }
+        }
+    }
+
     /// Create a WriteGuard to allow users to update the the data. There will
     /// only be 1 WriteGuard at a time.
     ///
@@ -89,13 +152,12 @@ impl<T> Writer<T> {
         //    its drop.
         // 4. Readers now will try to get a read guard to the same table that
         //    write_guard2 is holding.
-        let table = unsafe {
-            std::mem::transmute::<*const Table<T>, &mut Table<T>>(Arc::as_ptr(&self.table))
-        };
 
-        // Replay all ops on the standby table. This will hang until all readers
-        // have returned their read guard.
-        let mut standby_table = table.write();
+        // Wait until the standby table is free for us to update.
+        self.await_standby_table_free();
+
+        let mut standby_table = self.table.write();
+        // Replay all ops on the standby table.
         for op in self.ops_to_replay.drain(..) {
             op(&mut standby_table);
         }
@@ -104,11 +166,12 @@ impl<T> Writer<T> {
         WriteGuard {
             standby_table,
             ops_to_replay: &mut self.ops_to_replay,
+            readers: &self.readers,
         }
     }
 
     pub fn new_reader(&self) -> Reader<T> {
-        Reader::new(Arc::clone(&self.table))
+        Reader::new(Arc::clone(&self.readers), Arc::clone(&self.table))
     }
 }
 
@@ -116,7 +179,6 @@ impl<T: fmt::Debug> fmt::Debug for Writer<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Writer")
             .field("num_ops_to_replay", &self.ops_to_replay.len())
-            .field("active_table_reader", &self.new_reader())
             .finish()
     }
 }
@@ -133,11 +195,16 @@ impl<T: fmt::Debug> fmt::Debug for Writer<T> {
 ///
 /// Only 1 WriteGuard can exist at a time.
 pub struct WriteGuard<'w, T> {
-    standby_table: RwLockWriteGuard<'w, T>,
+    // The table that will be updated. On Drop, this table will be passed into
+    // each of the readers as the new active table.
+    standby_table: TableWriteGuard<'w, T>,
 
     // Record the ops that were applied to standby_table to be replayed the next
     // time we create a WriteGuard.
     ops_to_replay: &'w mut Vec<Box<dyn FnOnce(&mut T)>>,
+
+    // Update first_epoch_after_update.
+    readers: &'w ReaderEpochInfos,
 }
 
 impl<'w, T> WriteGuard<'w, T> {
@@ -163,13 +230,35 @@ impl<'w, T> WriteGuard<'w, T> {
     }
 }
 
+impl<'w, T> Drop for WriteGuard<'w, T> {
+    fn drop(&mut self) {
+        // Swap the active and standby table.
+        drop(&mut self.standby_table);
+
+        for (_, info) in self.readers.lock().unwrap().iter_mut() {
+            // Make sure that swap occurs before recording the epoch.
+            std::sync::atomic::fence(Ordering::SeqCst);
+
+            // Once the tables have been swapped, record the epoch of each
+            // reader so that we will know if it is safe to update the new
+            // standby table.
+            debug_assert_le!(
+                info.first_epoch_after_update.load(Ordering::Acquire),
+                info.epoch.load(Ordering::Acquire)
+            );
+            info.first_epoch_after_update
+                .store(info.epoch.load(Ordering::Acquire), Ordering::Release);
+        }
+    }
+}
+
 /// Dereferencing the WriteGuard will let you see the state of the
 /// standby_table. If you want to inspect the state of the active_table you must
 /// go through a Reader.
 impl<'w, T> std::ops::Deref for WriteGuard<'w, T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
-        &*self.standby_table
+        &self.standby_table
     }
 }
 
@@ -177,7 +266,6 @@ impl<'w, T: fmt::Debug> fmt::Debug for WriteGuard<'w, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("WriteGuard")
             .field("num_ops_to_replay", &self.ops_to_replay.len())
-            .field("standby_table", &self.standby_table)
             .finish()
     }
 }
