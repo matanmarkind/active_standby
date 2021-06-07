@@ -17,7 +17,7 @@ pub mod btreeset {
     }
 
     impl<T> Reader<T> {
-        pub fn read(&self) -> ReadGuard<'_, T> {
+        pub fn read(&mut self) -> ReadGuard<'_, T> {
             ReadGuard {
                 guard: self.reader.read(),
             }
@@ -210,7 +210,7 @@ mod test {
         };
 
         let mut writer = Writer::<&str>::new();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
         {
             let mut wg = writer.write();
             wg.insert("hello");
@@ -226,7 +226,7 @@ mod test {
     #[test]
     fn clear() {
         let mut writer = Writer::<&str>::new();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
         {
             let mut wg = writer.write();
             wg.insert("hello");
@@ -245,7 +245,7 @@ mod test {
             "hello",
         };
         let mut writer = Writer::<&str>::new();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
         {
             let mut wg = writer.write();
             wg.insert("hello");
@@ -272,7 +272,7 @@ mod test {
         };
 
         let mut writer = Writer::<&str>::new();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
         {
             let map1 = btreeset! {
                 "hello",

@@ -16,7 +16,7 @@ pub mod vec {
     }
 
     impl<T> Reader<T> {
-        pub fn read(&self) -> ReadGuard<'_, T> {
+        pub fn read(&mut self) -> ReadGuard<'_, T> {
             ReadGuard {
                 guard: self.reader.read(),
             }
@@ -278,7 +278,7 @@ mod test {
     #[test]
     fn push() {
         let mut writer = Writer::<i32>::new();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
         assert_eq!(reader.read().len(), 0);
 
         {
@@ -297,7 +297,7 @@ mod test {
     #[test]
     fn clear() {
         let mut writer = Writer::<i32>::new();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
         assert_eq!(reader.read().len(), 0);
 
         {
@@ -321,7 +321,7 @@ mod test {
     #[test]
     fn pop() {
         let mut writer = Writer::<i32>::new();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
 
         {
             let mut wg = writer.write();
@@ -340,7 +340,7 @@ mod test {
     #[test]
     fn indirect_type() {
         let mut writer = Writer::<Box<i32>>::new();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
 
         {
             let mut wg = writer.write();
@@ -356,7 +356,7 @@ mod test {
     #[test]
     fn reserve() {
         let mut writer = Writer::<i32>::new();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
 
         {
             let mut wg = writer.write();
@@ -371,7 +371,7 @@ mod test {
     #[test]
     fn reserve_exact() {
         let mut writer = Writer::<i32>::new();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
 
         {
             let mut wg = writer.write();
@@ -386,7 +386,7 @@ mod test {
     #[test]
     fn shrink_to_fit() {
         let mut writer = Writer::<i32>::new();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
 
         {
             let mut wg = writer.write();
@@ -404,7 +404,7 @@ mod test {
     #[test]
     fn truncate() {
         let mut writer = Writer::<i32>::new();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
 
         {
             let mut wg = writer.write();
@@ -422,7 +422,7 @@ mod test {
     #[test]
     fn swap_remove() {
         let mut writer = Writer::<i32>::new();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
 
         {
             let mut wg = writer.write();
@@ -440,7 +440,7 @@ mod test {
     #[test]
     fn insert() {
         let mut writer = Writer::<i32>::new();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
 
         {
             let mut wg = writer.write();
@@ -460,7 +460,7 @@ mod test {
     #[test]
     fn retain() {
         let mut writer = Writer::<i32>::new();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
 
         {
             let mut wg = writer.write();
@@ -478,7 +478,7 @@ mod test {
     #[test]
     fn drain() {
         let mut writer = Writer::<i32>::new();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
 
         {
             let mut wg = writer.write();

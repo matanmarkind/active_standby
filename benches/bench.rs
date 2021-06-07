@@ -38,7 +38,7 @@ fn write_guard_with_contention(b: &mut test::bench::Bencher) {
     let mut writer = Writer::<i32>::new(1);
     let _reader_handles: Vec<_> = (0..4)
         .map(|_| {
-            let reader = writer.new_reader();
+            let mut reader = writer.new_reader();
             std::thread::spawn(move || {
                 // Continually grab read guards. We expect that readers can
                 // block the writer, so no point holding the reader for a long
@@ -59,7 +59,7 @@ fn write_guard_with_contention(b: &mut test::bench::Bencher) {
 #[bench]
 fn read_guard_no_contention(b: &mut test::bench::Bencher) {
     let writer = Writer::<i32>::new(1);
-    let reader = writer.new_reader();
+    let mut reader = writer.new_reader();
 
     b.iter(|| {
         let rg = reader.read();
@@ -74,7 +74,7 @@ fn read_guard_read_contention(b: &mut test::bench::Bencher) {
     let writer = Writer::<i32>::new(1);
     let _reader_handles: Vec<_> = (0..20)
         .map(|_| {
-            let reader = writer.new_reader();
+            let mut reader = writer.new_reader();
             std::thread::spawn(move || {
                 // Continually grab read guards.
                 while *reader.read() != 0 {
@@ -84,7 +84,7 @@ fn read_guard_read_contention(b: &mut test::bench::Bencher) {
         })
         .collect();
 
-    let reader = writer.new_reader();
+    let mut reader = writer.new_reader();
     b.iter(|| {
         let rg = reader.read();
         assert_eq!(*rg, 1);
@@ -96,7 +96,7 @@ fn read_guard_read_contention(b: &mut test::bench::Bencher) {
 #[bench]
 fn read_guard_write_contention(b: &mut test::bench::Bencher) {
     let mut writer = SendWriter::<i32>::new(1);
-    let reader = writer.new_reader();
+    let mut reader = writer.new_reader();
     let _writer_handle = std::thread::spawn(move || loop {
         let mut wg = writer.write();
         wg.update_tables(AddOne {});
@@ -113,7 +113,7 @@ fn read_guard_write_contention(b: &mut test::bench::Bencher) {
 #[bench]
 fn read_guard_writehold_contention(b: &mut test::bench::Bencher) {
     let mut writer = SendWriter::<i32>::new(1);
-    let reader = writer.new_reader();
+    let mut reader = writer.new_reader();
     let _writer_handle = std::thread::spawn(move || loop {
         let mut wg = writer.write();
         wg.update_tables(AddOne {});
@@ -155,10 +155,10 @@ fn plain_atomicbool(b: &mut test::bench::Bencher) {
 
 fn read_guard_readwrite_contention(b: &mut test::bench::Bencher, num_readers: u32) {
     let mut writer = SendWriter::<i32>::new(1);
-    let reader = writer.new_reader();
+    let mut reader = writer.new_reader();
     let _reader_handles: Vec<_> = (0..num_readers)
         .map(|_| {
-            let reader = writer.new_reader();
+            let mut reader = writer.new_reader();
             std::thread::spawn(move || {
                 // Continually grab read guards.
                 while *reader.read() != 0 {
@@ -204,15 +204,15 @@ fn read_guard_readwrite_contention_40(b: &mut test::bench::Bencher) {
 }
 
 // Benchmark results:
-// test plain_atomicbool                   ... bench:          15 ns/iter (+/- 4)
-// test read_guard_no_contention           ... bench:          35 ns/iter (+/- 2)
-// test read_guard_read_contention         ... bench:          35 ns/iter (+/- 3)
-// test read_guard_readwrite_contention_1  ... bench:         152 ns/iter (+/- 10)
-// test read_guard_readwrite_contention_10 ... bench:         161 ns/iter (+/- 64)
-// test read_guard_readwrite_contention_20 ... bench:         115 ns/iter (+/- 96)
-// test read_guard_readwrite_contention_30 ... bench:         100 ns/iter (+/- 117)
-// test read_guard_readwrite_contention_40 ... bench:         111 ns/iter (+/- 343)
-// test read_guard_write_contention        ... bench:         102 ns/iter (+/- 101)
-// test read_guard_writehold_contention    ... bench:          58 ns/iter (+/- 2)
-// test write_guard_with_contention        ... bench:         546 ns/iter (+/- 82,755)
-// test write_guard_without_contention     ... bench:         414 ns/iter (+/- 4,930)
+// test plain_atomicbool                   ... bench:          14 ns/iter (+/- 1)
+// test read_guard_no_contention           ... bench:          19 ns/iter (+/- 1)
+// test read_guard_read_contention         ... bench:          19 ns/iter (+/- 1)
+// test read_guard_readwrite_contention_1  ... bench:          79 ns/iter (+/- 2)
+// test read_guard_readwrite_contention_10 ... bench:          74 ns/iter (+/- 2)
+// test read_guard_readwrite_contention_20 ... bench:          66 ns/iter (+/- 1)
+// test read_guard_readwrite_contention_30 ... bench:          53 ns/iter (+/- 4)
+// test read_guard_readwrite_contention_40 ... bench:          33 ns/iter (+/- 14)
+// test read_guard_write_contention        ... bench:          35 ns/iter (+/- 33)
+// test read_guard_writehold_contention    ... bench:          21 ns/iter (+/- 1)
+// test write_guard_with_contention        ... bench:       4,145 ns/iter (+/- 58,038)
+// test write_guard_without_contention     ... bench:         108 ns/iter (+/- 747)

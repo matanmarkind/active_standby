@@ -6,8 +6,8 @@ use std::fmt;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
-/// Operations that update that data held internally must implement this
-/// interface.
+/// Operations that update the data held internally. Users mutate the tables by
+/// implementing this trait for each function to be performed on the tables.
 ///
 /// Users must be careful to guarantee that apply_first and apply_second cause
 /// the tables to end up in the same state.
@@ -19,9 +19,11 @@ pub trait UpdateTables<T, R> {
     }
 }
 
-/// Writer is the class used to gain access to mutating the underlying tables.
+/// Writer is the entry point for using active_standy primitives, and for
+/// updating the underlying table.
+///
 /// In order to interact with the underlying tables you must create a
-/// WriteGuard.
+/// WriteGuard. Only 1 Writer can exist for a given table.
 ///
 /// Writer doesn't actually own the underlying data, so if Writer is Dropped,
 /// this will not delete the tables. Instead they will only be dropped once all
@@ -31,9 +33,9 @@ pub trait UpdateTables<T, R> {
 pub struct Writer<T> {
     // The underlying tables. This struct is responsible for returning the
     // correct active/standby table, and also for swapping them when the
-    // TableWriteGuard is dropped. This table is not responsible for sync'ing
-    // across writers and readers, that is left to the Writer, to guarantee that
-    // there are no ReadGuards pointing to the standby_table.
+    // TableWriteGuard is dropped. This table does not handle any
+    // synchronization across Writer/Readers, rather that is handled by the
+    // Writer and Readers themselves.
     table: Arc<Table<T>>,
 
     /// Information about each of the readers. Used by the Writer and Readers to
@@ -41,19 +43,44 @@ pub struct Writer<T> {
     /// pointing to.
     readers: ReaderEpochInfos,
 
-    /// Log of operations to be performed on the active table. This gets played
+    /// Log of operations to be performed on the second table. This gets played
     /// on the standby table when creating a WriteGuard, as opposed to when
     /// dropping it, to minimize lock contention. This is in the hopes that by
     /// waiting until the next time a WriteGuard is created, we give the readers
     /// time to switch to reading from the new active_table.
     ///
-    /// We could make the Writer Send + Sync if we instead gave up on this
-    /// optimization and moved ops_to_replay into WriteGuard, and had WriteGuard
-    /// perform these ops on Drop. I think this optimization is worth the need
-    /// for the user to use SendWriter and wrap it in a Mutex though. The Mutex
-    /// cost is minimal anyways since you will contend on locking Writer instead
-    /// of Writer.write, so there is no added contention.
+    /// Note that this is why Writer isn't Send, but we offer SendWriter as an
+    /// easy alternative.
     ops_to_replay: Vec<Box<dyn FnOnce(&mut T)>>,
+}
+
+/// WriteGuard is the interface used to actually mutate the tables. The
+/// lifecycle of a WriteGuard is as follows:
+/// 1. Creation - Wait for all Readers to point to the active_table, then apply
+///    all updates on the standby_table via 'apply_second'. This consumes all of
+///    the udpates.
+/// 2. Duration - update the standby table synchronously as updates come in via
+///    'apply_first'. Updates are then held onto for the next WriteGuard to
+///    apply on the other table.
+/// 3. Drop - When a WriteGuard is dropped swap the active and standby tables,
+///    publishing all of the updates to the Readers. This is the only time that
+///    the tables can be swapped.
+///
+/// Only 1 WriteGuard can exist at a time.
+pub struct WriteGuard<'w, T> {
+    // The table that will be updated. On Drop, this table will become the new
+    // active table.
+    standby_table: TableWriteGuard<'w, T>,
+
+    // Record the ops that were applied to standby_table to be replayed the next
+    // time we create a WriteGuard. We hold a FnOnce instead of an UpdateTables,
+    // because UpdateTables is templated on the return type, which is only used
+    // in apply_first.
+    ops_to_replay: &'w mut Vec<Box<dyn FnOnce(&mut T)>>,
+
+    // Update first_epoch_after_update *after* we have swapped the active and
+    // standby tables.
+    readers: &'w ReaderEpochInfos,
 }
 
 impl<T> Writer<T>
@@ -61,9 +88,13 @@ where
     T: Clone,
 {
     pub fn new(t: T) -> Writer<T> {
+        Self::with_readers_capacity(t, 1024)
+    }
+
+    pub fn with_readers_capacity(t: T, readers_capacity: usize) -> Writer<T> {
         Writer {
             table: Arc::new(Table::new(t)),
-            readers: Arc::new(Mutex::new(Slab::with_capacity(1024))),
+            readers: Arc::new(Mutex::new(Slab::with_capacity(readers_capacity))),
             ops_to_replay: Vec::new(),
         }
     }
@@ -81,22 +112,23 @@ where
 impl<T> Writer<T> {
     // Hangs until the standby table has no readers pointing to it, meaning it
     // is safe for updating.
-    pub fn await_standby_table_free(&mut self) {
-        // Iterate through the readers to check if there are any that will block
-        // the writer.
+    fn await_standby_table_free(&mut self) {
+        // Collect a list of the ReadGuards that existed when the last
+        // WriteGuard was dropped and still exist. These ReadGuards point to the
+        // table that we want to update, so we must wait for them to drop.
         let mut blocking_readers = std::collections::HashSet::<usize>::new();
 
         // We start here instead of simply building blocking_readers out of all
         // keys as an optimistic optimization. This way if there is no-one
         // blocking the writer we don't have to spend time building the HashSet
-        // (specifically hoping that this avoids any memory allocations.).
+        // (specifically hoping that this avoids any memory allocations).
         for (key, info) in self.readers.lock().unwrap().iter() {
             let epoch = info.epoch.load(Ordering::Acquire);
             let first_epoch_after_update = info.first_epoch_after_update.load(Ordering::Acquire);
 
-            // If the epoch has increased since this readers table was
+            // If the epoch has increased since this reader's table was
             // swapped, then this means the reader has moved on to using the
-            // new table. If the epoch was odd after the update, then this
+            // new table. If the epoch was even after the update, then this
             // means that the reader wasn't using the standby table at some
             // point since the swap, meaning that the current or next usage
             // must be from the new active table.
@@ -116,10 +148,6 @@ impl<T> Writer<T> {
                 epoch <= first_epoch_after_update && first_epoch_after_update % 2 != 0
             });
 
-            // Make sure that the above check and the readers lock going out of
-            // scope happens before the next check and yield.
-            std::sync::atomic::fence(Ordering::SeqCst);
-
             if !blocking_readers.is_empty() {
                 // Instead of busy looping we will yield this thread and come
                 // back when the OS returns to us.
@@ -138,21 +166,6 @@ impl<T> Writer<T> {
     /// 2. Replaying all of the updates that were applied to the last
     ///    WriteGuard.
     pub fn write(&mut self) -> WriteGuard<'_, T> {
-        // We rely on knowing that this is the only Writer (not Copy or Clone)
-        // and it can only call to 'write' when there are no existing
-        // WriteGuards (enforced by lifetimes). Since the next line is to grab
-        // a write guard and 'is_table0_active' is atomic, there isn't in
-        // practice thread unsafety if there were multiple Writers, but it
-        // could create contention:
-        // 1. write_guard1 begins drop. It first drops the actual write guard
-        //    to the table.
-        // 2. write_guard2 is created with a lock on the same table as
-        //    write_guard1 was using.
-        // 3. write_guard1 swaps the standby and active tables, and completes
-        //    its drop.
-        // 4. Readers now will try to get a read guard to the same table that
-        //    write_guard2 is holding.
-
         // Wait until the standby table is free for us to update.
         self.await_standby_table_free();
 
@@ -171,7 +184,7 @@ impl<T> Writer<T> {
     }
 
     pub fn new_reader(&self) -> Reader<T> {
-        Reader::new(Arc::clone(&self.readers), Arc::clone(&self.table))
+        Reader::new(&self.readers, &self.table)
     }
 }
 
@@ -183,35 +196,11 @@ impl<T: fmt::Debug> fmt::Debug for Writer<T> {
     }
 }
 
-/// WriteGuard is the interface used to actually mutate the tables. The
-/// lifecycle of a WriteGuard is as follows:
-/// 1. Creation - Write lock the standby_table and apply all updates on it via
-///    'apply_second'. This consumes all of the udpates.
-/// 2. Duration - update the standby table synchronously as updates come in via
-///    'apply_first'. Updates are then held onto for the next WriteGuard to
-///    apply on the other table.
-/// 3. Drop - When a WriteGuard is dropped swap the active and standby tables,
-///    publishing all of the updates to the Readers.
-///
-/// Only 1 WriteGuard can exist at a time.
-pub struct WriteGuard<'w, T> {
-    // The table that will be updated. On Drop, this table will be passed into
-    // each of the readers as the new active table.
-    standby_table: TableWriteGuard<'w, T>,
-
-    // Record the ops that were applied to standby_table to be replayed the next
-    // time we create a WriteGuard.
-    ops_to_replay: &'w mut Vec<Box<dyn FnOnce(&mut T)>>,
-
-    // Update first_epoch_after_update.
-    readers: &'w ReaderEpochInfos,
-}
-
 impl<'w, T> WriteGuard<'w, T> {
     /// Takes an update which will change the state of the underlying data. This
     /// is done through the interface of UpdateTables.
     ///
-    /// The return value can be anything that owns it's own data. We don't all
+    /// The return value can be anything that owns it's own data. We don't allow
     /// the return value to be a reference to the data as a way to encourage
     /// keeping the tables in sync. Since returning a &mut would allow users to
     /// cause mutations outside of the update they pass.
@@ -235,10 +224,10 @@ impl<'w, T> Drop for WriteGuard<'w, T> {
         // Swap the active and standby table.
         drop(&mut self.standby_table);
 
-        for (_, info) in self.readers.lock().unwrap().iter_mut() {
-            // Make sure that swap occurs before recording the epoch.
-            std::sync::atomic::fence(Ordering::SeqCst);
+        // Make sure that swap occurs before recording the epoch.
+        std::sync::atomic::fence(Ordering::SeqCst);
 
+        for (_, info) in self.readers.lock().unwrap().iter_mut() {
             // Once the tables have been swapped, record the epoch of each
             // reader so that we will know if it is safe to update the new
             // standby table.
@@ -266,6 +255,7 @@ impl<'w, T: fmt::Debug> fmt::Debug for WriteGuard<'w, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("WriteGuard")
             .field("num_ops_to_replay", &self.ops_to_replay.len())
+            .field("standby_table", &self.standby_table)
             .finish()
     }
 }
@@ -376,7 +366,7 @@ mod test {
     }
 
     #[test]
-    fn one_guard() {
+    fn one_write_guard() {
         let mut writer = Writer::<Vec<i32>>::default();
         let _wg = writer.write();
 
@@ -388,9 +378,22 @@ mod test {
     }
 
     #[test]
+    fn one_reade_guard() {
+        let writer = Writer::<Vec<i32>>::default();
+        let mut reader = writer.new_reader();
+        let _rg = reader.read();
+
+        // If we uncomment this line the program fails to compile due to a
+        // second mutable borrow. This is an important guarantee since epoch
+        // tracking is done each time a ReadGuard is created.
+        //
+        // let _rg2 = reader.read();
+    }
+
+    #[test]
     fn publish_update() {
         let mut writer = Writer::<Vec<i32>>::default();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
         assert_eq!(reader.read().len(), 0);
 
         {
@@ -415,7 +418,7 @@ mod test {
             wg.update_tables(PopVec {});
             wg.update_tables(PushVec { value: 5 });
         }
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
         assert_eq!(*reader.read(), vec![2, 3, 5]);
     }
 
@@ -429,7 +432,7 @@ mod test {
             wg.update_tables(PopVec {});
             wg.update_tables(PushVec { value: Box::new(5) });
         }
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
         assert_eq!(*reader.read(), vec![Box::new(2), Box::new(5)]);
 
         {
@@ -439,7 +442,7 @@ mod test {
             wg.update_tables(PopVec {});
             wg.update_tables(PushVec { value: Box::new(7) });
         }
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
         assert_eq!(
             *reader.read(),
             vec![Box::new(2), Box::new(5), Box::new(9), Box::new(7)]
@@ -449,14 +452,14 @@ mod test {
             let mut wg = writer.write();
             wg.update_tables(PopVec {});
         }
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
         assert_eq!(*reader.read(), vec![Box::new(2), Box::new(5), Box::new(9)]);
     }
 
     #[test]
     fn multi_thread() {
         let mut writer = Writer::<Vec<i32>>::default();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
         let handler = thread::spawn(move || {
             while *reader.read() != vec![2, 3, 5] {
                 // Since commits oly happen when a WriteGuard is dropped no reader
@@ -465,7 +468,7 @@ mod test {
             }
 
             // Show multiple readers in multiple threads.
-            let reader2 = Reader::clone(&reader);
+            let mut reader2 = Reader::clone(&reader);
             let handler = thread::spawn(move || while *reader2.read() != vec![2, 3, 5] {});
             assert!(handler.join().is_ok());
         });
@@ -485,7 +488,7 @@ mod test {
     #[test]
     fn writer_dropped() {
         // Show that when the Writer is dropped, Readers remain valid.
-        let reader;
+        let mut reader;
         {
             let mut writer = Writer::<Vec<i32>>::default();
             reader = writer.new_reader();
@@ -505,23 +508,20 @@ mod test {
     #[test]
     fn debug_str() {
         let mut writer = Writer::<Vec<i32>>::default();
-        let reader = writer.new_reader();
-        assert_eq!(
-            format!("{:?}", writer),
-            "Writer { num_ops_to_replay: 0, active_table_reader: Reader { read_guard: RwLockReadGuard { lock: RwLock { data: [] } } } }");
+        let mut reader = writer.new_reader();
+        assert_eq!(format!("{:?}", writer), "Writer { num_ops_to_replay: 0 }");
         {
             let mut wg = writer.write();
             wg.update_tables(PushVec { value: 2 });
             assert_eq!(
                 format!("{:?}", wg),
-                "WriteGuard { num_ops_to_replay: 1, standby_table: RwLockWriteGuard { is_table0_active: true, standby_table: RwLockWriteGuard { lock: RwLock { data: <locked> } } } }");
+                "WriteGuard { num_ops_to_replay: 1, standby_table: TableWriteGuard { standby_table: [2] } }");
         }
+        assert_eq!(format!("{:?}", writer), "Writer { num_ops_to_replay: 1 }");
+        assert_eq!(format!("{:?}", reader), "Reader");
         assert_eq!(
-            format!("{:?}", writer),
-            "Writer { num_ops_to_replay: 1, active_table_reader: Reader { read_guard: RwLockReadGuard { lock: RwLock { data: [2] } } } }");
-        assert_eq!(
-            format!("{:?}", reader),
-            "Reader { read_guard: RwLockReadGuard { lock: RwLock { data: [2] } } }"
+            format!("{:?}", reader.read()),
+            "ReadGuard { active_table: [2] }"
         );
     }
 }

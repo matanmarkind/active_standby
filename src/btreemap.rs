@@ -17,7 +17,7 @@ pub mod btreemap {
     }
 
     impl<K, V> Reader<K, V> {
-        pub fn read(&self) -> ReadGuard<'_, K, V> {
+        pub fn read(&mut self) -> ReadGuard<'_, K, V> {
             ReadGuard {
                 guard: self.reader.read(),
             }
@@ -192,7 +192,7 @@ mod test {
         };
 
         let mut writer = Writer::<&str, i32>::new();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
         {
             let mut wg = writer.write();
             wg.insert("hello", 1);
@@ -208,7 +208,7 @@ mod test {
     #[test]
     fn clear() {
         let mut writer = Writer::<&str, i32>::new();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
         {
             let mut wg = writer.write();
             wg.insert("hello", 1);
@@ -228,7 +228,7 @@ mod test {
         };
 
         let mut writer = Writer::<&str, i32>::new();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
         {
             let mut wg = writer.write();
             wg.insert("hello", 1);
@@ -249,7 +249,7 @@ mod test {
         };
 
         let mut writer = Writer::<&str, i32>::new();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
         {
             let mut wg = writer.write();
             wg.insert("hello", 1);
@@ -273,7 +273,7 @@ mod test {
         };
 
         let mut writer = Writer::<&str, i32>::new();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
         {
             let map1 = btreemap! {
                 "hello" => 1,

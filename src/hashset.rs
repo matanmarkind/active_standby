@@ -18,7 +18,7 @@ pub mod hashset {
     }
 
     impl<T> Reader<T> {
-        pub fn read(&self) -> ReadGuard<'_, T> {
+        pub fn read(&mut self) -> ReadGuard<'_, T> {
             ReadGuard {
                 guard: self.reader.read(),
             }
@@ -262,7 +262,7 @@ mod test {
         };
 
         let mut writer = Writer::<&str>::new();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
         {
             let mut wg = writer.write();
             wg.insert("hello");
@@ -279,7 +279,7 @@ mod test {
     #[test]
     fn clear() {
         let mut writer = Writer::<&str>::new();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
         {
             let mut wg = writer.write();
             wg.insert("hello");
@@ -299,7 +299,7 @@ mod test {
         };
 
         let mut writer = Writer::<&str>::new();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
         {
             let mut wg = writer.write();
             wg.insert("hello");
@@ -319,7 +319,7 @@ mod test {
     #[test]
     fn shrink_to_fit_and_reserve() {
         let mut writer = Writer::<&str>::new();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
         let initial_capacity;
         let additional = 10;
         {
@@ -346,7 +346,7 @@ mod test {
             "name",
         };
         let mut writer = Writer::<&str>::new();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
         {
             let mut wg = writer.write();
             wg.insert("hello");
@@ -372,7 +372,7 @@ mod test {
         };
 
         let mut writer = Writer::<&str>::new();
-        let reader = writer.new_reader();
+        let mut reader = writer.new_reader();
         {
             let mut wg = writer.write();
             wg.insert("hello");

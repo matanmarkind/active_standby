@@ -58,35 +58,18 @@ pub struct ReadGuard<'r, T> {
 impl<T> Clone for Reader<T> {
     /// Creates a new Reader that is independent of the initial one. All Readers
     /// should look identical to users.
-    ///
-    /// Performance: this function is blocking since we need to lock the set of
-    /// readers.
     fn clone(&self) -> Reader<T> {
-        // Safety: This is all done under the readers lock. Therefore there is
-        // no race with the writer updating certain fields of the
-        // SharedReaderInfo.
-        let mut readers = self.readers.lock().unwrap();
-        let info = ReaderEpochInfo {
-            epoch: AtomicUsize::new(self.my_info.epoch.load(Ordering::Acquire)),
-            first_epoch_after_update: AtomicUsize::new(
-                self.my_info
-                    .first_epoch_after_update
-                    .load(Ordering::Acquire),
-            ),
-        };
-        let key = readers.insert(Arc::new(info));
-
-        Reader {
-            readers: Arc::clone(&self.readers),
-            my_key_in_readers: key,
-            my_info: Arc::clone(&readers[key]),
-            table: Arc::clone(&self.table),
-        }
+        Reader::new(&self.readers, &self.table)
     }
 }
 
 impl<T> Reader<T> {
-    pub fn new(readers: ReaderEpochInfos, table: Arc<Table<T>>) -> Reader<T> {
+    /// Create a new Reader.
+    ///
+    /// Performance: this function is potentially blocking since we need to lock
+    /// the set of readers. This will compete with WriteGuard creation/deletion,
+    /// but not during the lifetime of a WriteGuard.
+    pub fn new(readers: &ReaderEpochInfos, table: &Arc<Table<T>>) -> Reader<T> {
         let info = ReaderEpochInfo {
             epoch: AtomicUsize::new(0),
             first_epoch_after_update: AtomicUsize::new(0),
@@ -96,19 +79,28 @@ impl<T> Reader<T> {
         Reader {
             my_info: Arc::clone(&readers.lock().unwrap()[key]),
             my_key_in_readers: key,
-            readers: Arc::clone(&readers),
-            table: Arc::clone(&table),
+            readers: Arc::clone(readers),
+            table: Arc::clone(table),
         }
     }
 
-    pub fn read(&self) -> ReadGuard<'_, T> {
+    /// Obtain a read guard with which to inspect the active table.
+    ///
+    /// This is wait free since there is nothing to lock, and the Writer is
+    /// responsible for never mutating the table that a Reader would want to
+    /// read from.
+    pub fn read(&mut self) -> ReadGuard<'_, T> {
+        // Theoretically we could add a counter for number of entries and only
+        // increment epoch on transitions from 0 <-> 1 guards. This would make
+        // Reader re-entrant, which I tend to shy away from, since I think of it
+        // as code smell.
         let old_epoch = self.my_info.epoch.load(Ordering::Acquire);
         debug_assert_eq!(old_epoch % 2, 0);
         self.my_info.epoch.store(old_epoch + 1, Ordering::Release);
 
         // The reader must update the epoch before taking the table. This
         // effectively locks the active_table, making it safe for the reader to
-        // proceed.
+        // proceed knowing that the Writer
         std::sync::atomic::fence(Ordering::SeqCst);
 
         ReadGuard {
@@ -131,6 +123,8 @@ impl<T: fmt::Debug> fmt::Debug for Reader<T> {
 }
 
 impl<'r, T> Drop for ReadGuard<'r, T> {
+    /// Update the epoch counter to notify the Writer that we are done using the
+    /// 'active_table' and so is available for use as the new standby table.
     fn drop(&mut self) {
         let old_epoch = self.epoch.load(Ordering::Acquire);
         debug_assert_eq!(old_epoch % 2, 1);
@@ -142,5 +136,13 @@ impl<'r, T> std::ops::Deref for ReadGuard<'r, T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         self.active_table
+    }
+}
+
+impl<'r, T: fmt::Debug> fmt::Debug for ReadGuard<'r, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ReadGuard")
+            .field("active_table", &self.active_table)
+            .finish()
     }
 }
