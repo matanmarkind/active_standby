@@ -1,8 +1,7 @@
 use crate::table::Table;
+use crate::types::*;
 use slab::Slab;
 use std::fmt;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
 
 /// Information that both Readers and writers need to read and update.
 pub struct ReaderEpochInfo {
@@ -19,8 +18,11 @@ pub struct ReaderEpochInfo {
 impl Clone for ReaderEpochInfo {
     fn clone(&self) -> ReaderEpochInfo {
         let first_epoch_after_update = self.first_epoch_after_update.load(Ordering::Acquire);
-        // Make sure to read 'first_epoch_after_update' first to guarantee it is never greater than epoch.
-        std::sync::atomic::fence(Ordering::SeqCst);
+
+        // Make sure to read 'first_epoch_after_update' first to guarantee it is
+        // never greater than epoch. 
+        fence(Ordering::SeqCst);
+
         let epoch = self.epoch.load(Ordering::Acquire);
         ReaderEpochInfo {
             epoch: AtomicUsize::new(epoch),
@@ -100,8 +102,9 @@ impl<T> Reader<T> {
 
         // The reader must update the epoch before taking the table. This
         // effectively locks the active_table, making it safe for the reader to
-        // proceed knowing that the Writer
-        std::sync::atomic::fence(Ordering::SeqCst);
+        // proceed knowing that the Writer will not be able to access this table
+        // until epoch is implemented again.
+        fence(Ordering::SeqCst);
 
         ReadGuard {
             active_table: self.table.read(),

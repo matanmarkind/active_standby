@@ -1,10 +1,9 @@
 use crate::read::{Reader, ReaderEpochInfos};
 use crate::table::{Table, TableWriteGuard};
+use crate::types::*;
 use more_asserts::*;
 use slab::Slab;
 use std::fmt;
-use std::sync::atomic::Ordering;
-use std::sync::{Arc, Mutex};
 
 /// Operations that update the data held internally. Users mutate the tables by
 /// implementing this trait for each function to be performed on the tables.
@@ -140,7 +139,14 @@ impl<T> Writer<T> {
         // Wait until no reader is making use of the standby table.
         while !blocking_readers.is_empty() {
             blocking_readers.retain(|key| {
-                let info = self.readers.lock().unwrap()[*key].clone();
+                let info = match self.readers.lock().unwrap().get(*key) {
+                    None => {
+                        // This Reader has been dropped.
+                        return false;
+                    }
+                    Some(orig) => orig.clone(),
+                };
+
                 let epoch = info.epoch.load(Ordering::Acquire);
                 let first_epoch_after_update =
                     info.first_epoch_after_update.load(Ordering::Acquire);
@@ -151,7 +157,7 @@ impl<T> Writer<T> {
             if !blocking_readers.is_empty() {
                 // Instead of busy looping we will yield this thread and come
                 // back when the OS returns to us.
-                std::thread::yield_now();
+                yield_now();
             }
         }
     }
@@ -225,7 +231,7 @@ impl<'w, T> Drop for WriteGuard<'w, T> {
         drop(&mut self.standby_table);
 
         // Make sure that swap occurs before recording the epoch.
-        std::sync::atomic::fence(Ordering::SeqCst);
+        fence(Ordering::SeqCst);
 
         for (_, info) in self.readers.lock().unwrap().iter_mut() {
             // Once the tables have been swapped, record the epoch of each

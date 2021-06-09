@@ -1,5 +1,5 @@
+use crate::types::*;
 use std::fmt;
-use std::sync::atomic::{AtomicPtr, Ordering};
 
 /// Table holds the 2 copies of the underlying table, which the user should
 /// experience as a single table.
