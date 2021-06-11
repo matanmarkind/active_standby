@@ -13,4 +13,3 @@ test write_guard_with_contention        ... bench:      11,025 ns/iter (+/- 79,4
 test write_guard_without_contention     ... bench:          87 ns/iter (+/- 5)
 
 test result: ok. 0 passed; 0 failed; 0 ignored; 12 measured; 0 filtered out; finished in 33.18s
-
