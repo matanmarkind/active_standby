@@ -3,47 +3,23 @@ use crate::types::*;
 use slab::Slab;
 use std::fmt;
 
-/// Information that both Readers and writers need to read and update.
-pub struct ReaderEpochInfo {
-    // Epoch count of the reader, checked by the writer after updating table.
-    // Updated by the reader, read by the writer.
-    pub epoch: AtomicUsize,
-
-    // First epoch value read by the writer after updating the table. Used to
-    // determine when it is safe for the writer to begin mutating the standby
-    // table. Only used by the writer.
-    pub first_epoch_after_swap: AtomicUsize,
-}
-
-impl Clone for ReaderEpochInfo {
-    fn clone(&self) -> ReaderEpochInfo {
-        let first_epoch_after_swap = self.first_epoch_after_swap.load(Ordering::SeqCst);
-
-        // Make sure to read 'first_epoch_after_swap' first to guarantee it is
-        // never greater than epoch.
-        fence(Ordering::SeqCst);
-
-        let epoch = self.epoch.load(Ordering::SeqCst);
-        ReaderEpochInfo {
-            epoch: AtomicUsize::new(epoch),
-            first_epoch_after_swap: AtomicUsize::new(first_epoch_after_swap),
-        }
-    }
-}
-pub type ReaderEpochInfos = Arc<Mutex<Slab<Arc<ReaderEpochInfo>>>>;
+/// List of epoch counters for each reader. This is the shared state, between
+/// Reader and Writer, used to synchronize when it is safe for the Writer to
+/// mutate the standby table.
+pub type ReaderEpochs = Arc<Mutex<Slab<Arc<AtomicUsize>>>>;
 
 /// Class used to obtain read guards to the underlying table. Obtaining a
 /// ReadGuard should never suffer contention since the active table is promised
 /// to never have a write guard.
 pub struct Reader<T> {
     // Allows the Reader to generate new readers, and remove itself from the list on drop.
-    readers: ReaderEpochInfos,
+    readers: ReaderEpochs,
 
     // Key that references this reader, used on drop.
     my_key_in_readers: usize,
 
     // ReaderInfo of this Reader.
-    my_info: Arc<ReaderEpochInfo>,
+    my_epoch: Arc<AtomicUsize>,
 
     // The table.
     table: Arc<Table<T>>,
@@ -71,15 +47,14 @@ impl<T> Reader<T> {
     /// Performance: this function is potentially blocking since we need to lock
     /// the set of readers. This will compete with WriteGuard creation/deletion,
     /// but not during the lifetime of a WriteGuard.
-    pub fn new(readers: &ReaderEpochInfos, table: &Arc<Table<T>>) -> Reader<T> {
-        let info = ReaderEpochInfo {
-            epoch: AtomicUsize::new(0),
-            first_epoch_after_swap: AtomicUsize::new(0),
-        };
-        let key = readers.lock().unwrap().insert(Arc::new(info));
+    pub fn new(readers: &ReaderEpochs, table: &Arc<Table<T>>) -> Reader<T> {
+        let key = readers
+            .lock()
+            .unwrap()
+            .insert(Arc::new(AtomicUsize::new(0)));
 
         Reader {
-            my_info: Arc::clone(&readers.lock().unwrap()[key]),
+            my_epoch: Arc::clone(&readers.lock().unwrap()[key]),
             my_key_in_readers: key,
             readers: Arc::clone(readers),
             table: Arc::clone(table),
@@ -94,11 +69,10 @@ impl<T> Reader<T> {
     pub fn read(&mut self) -> ReadGuard<'_, T> {
         // Theoretically we could add a counter for number of entries and only
         // increment epoch on transitions from 0 <-> 1 guards. This would make
-        // Reader re-entrant, which I tend to shy away from, since I think of it
-        // as code smell.
-        let old_epoch = self.my_info.epoch.load(Ordering::SeqCst);
+        // Reader re-entrant.
+        let old_epoch = self.my_epoch.load(Ordering::Acquire);
         debug_assert_eq!(old_epoch % 2, 0);
-        self.my_info.epoch.store(old_epoch + 1, Ordering::SeqCst);
+        self.my_epoch.store(old_epoch + 1, Ordering::Release);
 
         // The reader must update the epoch before taking the table. This
         // effectively locks the active_table, making it safe for the reader to
@@ -108,7 +82,7 @@ impl<T> Reader<T> {
 
         ReadGuard {
             active_table: self.table.read(),
-            epoch: &self.my_info.epoch,
+            epoch: &self.my_epoch,
         }
     }
 }
@@ -129,9 +103,9 @@ impl<'r, T> Drop for ReadGuard<'r, T> {
     /// Update the epoch counter to notify the Writer that we are done using the
     /// 'active_table' and so is available for use as the new standby table.
     fn drop(&mut self) {
-        let old_epoch = self.epoch.load(Ordering::SeqCst);
+        let old_epoch = self.epoch.load(Ordering::Acquire);
         debug_assert_eq!(old_epoch % 2, 1);
-        self.epoch.store(old_epoch + 1, Ordering::SeqCst);
+        self.epoch.store(old_epoch + 1, Ordering::Release);
     }
 }
 

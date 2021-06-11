@@ -25,6 +25,9 @@ use std::fmt;
 /// 5. Readers signal to a Writer when they borrow 'active_table' and when they
 ///    stop borrow the table. This is how Writer knows when it is safe to mutate
 ///    'standby_table'.
+///
+/// All operations (mostly swap) on the active and standby tables are SeqCst,
+/// since they need to be kept in sync relative to each other.
 pub struct Table<T> {
     active_table: AtomicPtr<T>,
     standby_table: AtomicPtr<T>,

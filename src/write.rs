@@ -1,7 +1,6 @@
-use crate::read::{Reader, ReaderEpochInfos};
+use crate::read::{Reader, ReaderEpochs};
 use crate::table::{Table, TableWriteGuard};
 use crate::types::*;
-use more_asserts::*;
 use slab::Slab;
 use std::fmt;
 
@@ -40,7 +39,7 @@ pub struct Writer<T> {
     /// Information about each of the readers. Used by the Writer and Readers to
     /// synchronize so that the Writer never mutates a table that a ReadGuard is
     /// pointing to.
-    readers: ReaderEpochInfos,
+    readers: ReaderEpochs,
 
     /// Log of operations to be performed on the second table. This gets played
     /// on the standby table when creating a WriteGuard, as opposed to when
@@ -51,25 +50,32 @@ pub struct Writer<T> {
     /// Note that this is why Writer isn't Send, but we offer SendWriter as an
     /// easy alternative.
     ops_to_replay: Vec<Box<dyn FnOnce(&mut T)>>,
+
+    // Record the epoch of the readers after we swap the tables. This is used to
+    // tell the Writer when it is safe to mutate the standby_table. Writer only
+    // mutates this by removing entries when waiting for the standby table to be
+    // free. {reader_key : first_epoch_after_swap}.
+    blocking_readers: std::collections::HashMap<usize, usize>,
 }
 
 /// WriteGuard is the interface used to actually mutate the tables. The
-/// lifecycle of a WriteGuard is as follows:
+/// lifecycle of a WriteGuard is:
 /// 1. Creation - Wait for all Readers to point to the active_table, then apply
 ///    all updates on the standby_table via 'apply_second'. This consumes all of
 ///    the udpates.
 /// 2. Duration - update the standby table synchronously as updates come in via
 ///    'apply_first'. Updates are then held onto for the next WriteGuard to
 ///    apply on the other table.
-/// 3. Drop - When a WriteGuard is dropped swap the active and standby tables,
+/// 3. Drop - When a WriteGuard is dropped, swap the active and standby tables,
 ///    publishing all of the updates to the Readers. This is the only time that
 ///    the tables can be swapped.
 ///
 /// Only 1 WriteGuard can exist at a time.
 pub struct WriteGuard<'w, T> {
-    // The table that will be updated. On Drop, this table will become the new
-    // active table.
-    standby_table: TableWriteGuard<'w, T>,
+    // A wrapper around the underlying tables which allows us to mutate the
+    // standby table. On Drop, we will tell the guard to swap the active and
+    // standby tables, publishing all updates to the Readers.
+    table: TableWriteGuard<'w, T>,
 
     // Record the ops that were applied to standby_table to be replayed the next
     // time we create a WriteGuard. We hold a FnOnce instead of an UpdateTables,
@@ -77,9 +83,15 @@ pub struct WriteGuard<'w, T> {
     // in apply_first.
     ops_to_replay: &'w mut Vec<Box<dyn FnOnce(&mut T)>>,
 
-    // Update first_epoch_after_swap *after* we have swapped the active and
-    // standby tables.
-    readers: &'w ReaderEpochInfos,
+    // Used to record first_epoch_after_swap *after* we have swapped the active
+    // and standby tables.
+    readers: &'w ReaderEpochs,
+
+    // Record the epoch of the readers after we swap the tables. This is used to
+    // tell the Writer when it is safe to mutate the standby_table. WriteGuard
+    // only mutates this by adding entries after swapping the active and standby
+    // tables. {reader_key : first_epoch_after_swap}.
+    blocking_readers: &'w mut std::collections::HashMap<usize, usize>,
 }
 
 impl<T> Writer<T>
@@ -95,6 +107,7 @@ where
             table: Arc::new(Table::new(t)),
             readers: Arc::new(Mutex::new(Slab::with_capacity(readers_capacity))),
             ops_to_replay: Vec::new(),
+            blocking_readers: std::collections::HashMap::new(),
         }
     }
 }
@@ -112,52 +125,24 @@ impl<T> Writer<T> {
     // Hangs until the standby table has no readers pointing to it, meaning it
     // is safe for updating.
     fn await_standby_table_free(&mut self) {
-        // Collect a list of the ReadGuards that existed when the last
-        // WriteGuard was dropped and still exist. These ReadGuards point to the
-        // table that we want to update, so we must wait for them to drop.
-        let mut blocking_readers = std::collections::HashSet::<usize>::new();
-
-        // We start here instead of simply building blocking_readers out of all
-        // keys as an optimistic optimization. This way if there is no-one
-        // blocking the writer we don't have to spend time building the HashSet
-        // (specifically hoping that this avoids any memory allocations).
-        for (key, info) in self.readers.lock().unwrap().iter() {
-            let epoch = info.epoch.load(Ordering::SeqCst);
-            let first_epoch_after_swap = info.first_epoch_after_swap.load(Ordering::SeqCst);
-
-            // If the epoch has increased since this reader's table was
-            // swapped, then this means the reader has moved on to using the
-            // new table. If the epoch was even after the update, then this
-            // means that the reader wasn't using the standby table at some
-            // point since the swap, meaning that the current or next usage
-            // must be from the new active table.
-            if epoch <= first_epoch_after_swap && first_epoch_after_swap % 2 != 0 {
-                blocking_readers.insert(key);
-            }
-        }
-
         // Wait until no reader is making use of the standby table.
-        while !blocking_readers.is_empty() {
+        while !self.blocking_readers.is_empty() {
             {
                 let readers = self.readers.lock().unwrap();
-                blocking_readers.retain(|key| {
-                    let info = match readers.get(*key) {
+                self.blocking_readers.retain(|key, first_epoch_after_swap| {
+                    let epoch = match readers.get(*key) {
                         None => {
                             // This Reader has been dropped.
                             return false;
                         }
-                        Some(info) => info,
+                        Some(epoch) => epoch.load(Ordering::Acquire),
                     };
 
-                    let epoch = info.epoch.load(Ordering::SeqCst);
-                    let first_epoch_after_swap =
-                        info.first_epoch_after_swap.load(Ordering::SeqCst);
-
-                    epoch <= first_epoch_after_swap && first_epoch_after_swap % 2 != 0
+                    epoch <= *first_epoch_after_swap && *first_epoch_after_swap % 2 != 0
                 });
             }
 
-            if !blocking_readers.is_empty() {
+            if !self.blocking_readers.is_empty() {
                 // Instead of busy looping we will yield this thread and come
                 // back when the OS returns to us.
                 yield_now();
@@ -178,17 +163,24 @@ impl<T> Writer<T> {
         // Wait until the standby table is free for us to update.
         self.await_standby_table_free();
 
-        let mut standby_table = self.table.write();
+        // Make sure we don't reorder waiting till later. Technically it just
+        // has to happen before we replay ops, since grabbing the standby table
+        // is fine to do without mutating it since this is the only Writer.
+        std::sync::atomic::compiler_fence(Ordering::SeqCst);
+
+        let mut table = self.table.write();
+
         // Replay all ops on the standby table.
         for op in self.ops_to_replay.drain(..) {
-            op(&mut standby_table);
+            op(&mut table);
         }
         self.ops_to_replay.clear();
 
         WriteGuard {
-            standby_table,
+            table,
             ops_to_replay: &mut self.ops_to_replay,
             readers: &self.readers,
+            blocking_readers: &mut self.blocking_readers,
         }
     }
 
@@ -218,7 +210,7 @@ impl<'w, T> WriteGuard<'w, T> {
     /// the WriteGuard taking the update, so we can't make any limitations on
     /// it.
     pub fn update_tables<R>(&mut self, mut update: impl UpdateTables<T, R> + 'static + Sized) -> R {
-        let res = update.apply_first(&mut self.standby_table);
+        let res = update.apply_first(&mut self.table);
 
         self.ops_to_replay.push(Box::new(move |table| {
             Box::new(update).apply_second(table);
@@ -230,36 +222,36 @@ impl<'w, T> WriteGuard<'w, T> {
 
 impl<'w, T> Drop for WriteGuard<'w, T> {
     fn drop(&mut self) {
+        assert!(self.blocking_readers.is_empty());
+
         // I initially implemented this as drop, and explicitly called
-        // 'drop(standby_table)'. This didn't actually take effect until the end
+        // 'drop(table)'. This didn't actually take effect until the end
         // of this function though, causing us to record the epochs before the
-        // swap had occurred. Caught by tsan & loom.
-        self.standby_table.swap_active_and_standby();
+        // swap had occurred. Caught by tsan.
+        self.table.swap_active_and_standby();
 
         // Make sure that swap occurs before recording the epoch.
         fence(Ordering::SeqCst);
 
-        for (_, info) in self.readers.lock().unwrap().iter_mut() {
+        for (key, epoch) in self.readers.lock().unwrap().iter_mut() {
             // Once the tables have been swapped, record the epoch of each
             // reader so that we will know if it is safe to update the new
             // standby table.
-            debug_assert_le!(
-                info.first_epoch_after_swap.load(Ordering::SeqCst),
-                info.epoch.load(Ordering::SeqCst)
-            );
-            info.first_epoch_after_swap
-                .store(info.epoch.load(Ordering::SeqCst), Ordering::SeqCst);
+            let first_epoch_after_swap = epoch.load(Ordering::Acquire);
+            if first_epoch_after_swap % 2 != 0 {
+                self.blocking_readers.insert(key, first_epoch_after_swap);
+            }
         }
     }
 }
 
 /// Dereferencing the WriteGuard will let you see the state of the
-/// standby_table. If you want to inspect the state of the active_table you must
+/// standby table. If you want to inspect the state of the active_table you must
 /// go through a Reader.
 impl<'w, T> std::ops::Deref for WriteGuard<'w, T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
-        &self.standby_table
+        &self.table
     }
 }
 
@@ -267,7 +259,7 @@ impl<'w, T: fmt::Debug> fmt::Debug for WriteGuard<'w, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("WriteGuard")
             .field("num_ops_to_replay", &self.ops_to_replay.len())
-            .field("standby_table", &self.standby_table)
+            .field("standby_table", &self.table)
             .finish()
     }
 }

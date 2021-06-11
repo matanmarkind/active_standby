@@ -10,10 +10,8 @@
 ///
 ///     $ rustup component add --toolchain nightly rust-src
 ///
-/// TSAN revealed that we need SeqCst throughout, Acquire/Release is not enough.
-///
 /// See historical benchmark results in "active_standby/benches/records/".
-/// 
+///
 // 'test' is a special crate that requires introduction this way even though we
 // are using rust 2018.
 // https://doc.rust-lang.org/nightly/edition-guide/rust-2018/module-system/path-clarity.html
