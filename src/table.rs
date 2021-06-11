@@ -58,7 +58,7 @@ impl<T> Table<T> {
         // Thread safety isn't guaranteed by the compiler, instead our access
         // patterns (Reader & Writer) must enforce that this table is never
         // updated by the Writer so long as this read exists.
-        unsafe { &*self.active_table.load(Ordering::Acquire) }
+        unsafe { &*self.active_table.load(Ordering::SeqCst) }
     }
 
     pub fn write(&self) -> TableWriteGuard<'_, T> {
@@ -74,8 +74,8 @@ impl<T> Drop for Table<T> {
         // Memory safety (valid pointer) is guaranteed by the class. See class
         // level comment.
         unsafe {
-            let _active_table = Box::from_raw(self.active_table.load(Ordering::Acquire));
-            let _standby_table = Box::from_raw(self.standby_table.load(Ordering::Acquire));
+            let _active_table = Box::from_raw(self.active_table.load(Ordering::SeqCst));
+            let _standby_table = Box::from_raw(self.standby_table.load(Ordering::SeqCst));
         }
     }
 }
@@ -86,13 +86,16 @@ impl<T: fmt::Debug> fmt::Debug for Table<T> {
     }
 }
 
-/// When the TableWriteGuard is dropped we swap the active and standby tables.
-/// We don't update the new standby table until a new TableWriteGuard is created
-/// (handled by Writer).
-impl<T> Drop for TableWriteGuard<'_, T> {
-    fn drop(&mut self) {
-        let active_table = self.active_table.load(Ordering::Acquire);
-        let standby_table = self.standby_table.load(Ordering::Acquire);
+impl<T> TableWriteGuard<'_, T> {
+    // When the WriteGuard is dropped, call to this function in order to swap
+    // the active and standby tables. All futures ReadGuards will now be from
+    // what was the standby_table which received all the updates during the
+    // lifetime of TableWriteGuard. TableWriteGuard must be dropped after this
+    // and only called after the Writer makes sure no ReadGuards are left
+    // pointing to the new standby_table.
+    pub fn swap_active_and_standby(&mut self) {
+        let active_table = self.active_table.load(Ordering::SeqCst);
+        let standby_table = self.standby_table.load(Ordering::SeqCst);
         assert_ne!(active_table, standby_table);
 
         // Swap the active and standby tables. These should never fail because
@@ -100,16 +103,16 @@ impl<T> Drop for TableWriteGuard<'_, T> {
         let res = self.active_table.compare_exchange(
             active_table,
             standby_table,
-            Ordering::AcqRel,
-            Ordering::Relaxed,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
         );
         assert_eq!(res, Ok(active_table));
 
         let res = self.standby_table.compare_exchange(
             standby_table,
             active_table,
-            Ordering::AcqRel,
-            Ordering::Relaxed,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
         );
         assert_eq!(res, Ok(standby_table));
     }
@@ -125,7 +128,7 @@ impl<'w, T> std::ops::Deref for TableWriteGuard<'w, T> {
     /// This is thread safe as long as the user guarantees that only 1
     /// TableWriteGuard can exist at a time.
     fn deref(&self) -> &Self::Target {
-        unsafe { &*self.standby_table.load(Ordering::Acquire) }
+        unsafe { &*self.standby_table.load(Ordering::SeqCst) }
     }
 }
 
@@ -145,7 +148,7 @@ impl<'w, T> std::ops::DerefMut for TableWriteGuard<'w, T> {
     /// 3. Readers will only switch to using this table when they are swapped on
     ///    TableWriteGuard::drop.
     fn deref_mut(&mut self) -> &mut T {
-        unsafe { &mut *self.standby_table.load(Ordering::Acquire) }
+        unsafe { &mut *self.standby_table.load(Ordering::SeqCst) }
     }
 }
 
@@ -153,7 +156,7 @@ impl<'w, T: fmt::Debug> fmt::Debug for TableWriteGuard<'w, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TableWriteGuard")
             .field("standby_table", unsafe {
-                &*self.standby_table.load(Ordering::Acquire)
+                &*self.standby_table.load(Ordering::SeqCst)
             })
             .finish()
     }

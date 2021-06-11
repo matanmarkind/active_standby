@@ -1,5 +1,19 @@
 #![feature(test)]
 
+/// Benchmarks for the table.
+///
+/// Useful to also run this with tsan:
+///
+///     $ RUST_BACKTRACE=full RUSTFLAGS="-Zsanitizer=thread -g" cargo +nightly bench -Z build-std --target x86_64-unknown-linux-gnu
+///
+/// In order to do that you need the rust src code:
+///
+///     $ rustup component add --toolchain nightly rust-src
+///
+/// TSAN revealed that we need SeqCst throughout, Acquire/Release is not enough.
+///
+/// See historical benchmark results in "active_standby/benches/records/".
+/// 
 // 'test' is a special crate that requires introduction this way even though we
 // are using rust 2018.
 // https://doc.rust-lang.org/nightly/edition-guide/rust-2018/module-system/path-clarity.html
@@ -202,17 +216,3 @@ fn read_guard_readwrite_contention_30(b: &mut test::bench::Bencher) {
 fn read_guard_readwrite_contention_40(b: &mut test::bench::Bencher) {
     read_guard_readwrite_contention(b, 40);
 }
-
-// Benchmark results:
-// test plain_atomicbool                   ... bench:          14 ns/iter (+/- 1)
-// test read_guard_no_contention           ... bench:          19 ns/iter (+/- 1)
-// test read_guard_read_contention         ... bench:          19 ns/iter (+/- 1)
-// test read_guard_readwrite_contention_1  ... bench:          79 ns/iter (+/- 2)
-// test read_guard_readwrite_contention_10 ... bench:          74 ns/iter (+/- 2)
-// test read_guard_readwrite_contention_20 ... bench:          66 ns/iter (+/- 1)
-// test read_guard_readwrite_contention_30 ... bench:          53 ns/iter (+/- 4)
-// test read_guard_readwrite_contention_40 ... bench:          33 ns/iter (+/- 14)
-// test read_guard_write_contention        ... bench:          35 ns/iter (+/- 33)
-// test read_guard_writehold_contention    ... bench:          21 ns/iter (+/- 1)
-// test write_guard_with_contention        ... bench:       4,145 ns/iter (+/- 58,038)
-// test write_guard_without_contention     ... bench:         108 ns/iter (+/- 747)

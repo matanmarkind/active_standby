@@ -77,7 +77,7 @@ pub struct WriteGuard<'w, T> {
     // in apply_first.
     ops_to_replay: &'w mut Vec<Box<dyn FnOnce(&mut T)>>,
 
-    // Update first_epoch_after_update *after* we have swapped the active and
+    // Update first_epoch_after_swap *after* we have swapped the active and
     // standby tables.
     readers: &'w ReaderEpochInfos,
 }
@@ -122,8 +122,8 @@ impl<T> Writer<T> {
         // blocking the writer we don't have to spend time building the HashSet
         // (specifically hoping that this avoids any memory allocations).
         for (key, info) in self.readers.lock().unwrap().iter() {
-            let epoch = info.epoch.load(Ordering::Acquire);
-            let first_epoch_after_update = info.first_epoch_after_update.load(Ordering::Acquire);
+            let epoch = info.epoch.load(Ordering::SeqCst);
+            let first_epoch_after_swap = info.first_epoch_after_swap.load(Ordering::SeqCst);
 
             // If the epoch has increased since this reader's table was
             // swapped, then this means the reader has moved on to using the
@@ -131,28 +131,31 @@ impl<T> Writer<T> {
             // means that the reader wasn't using the standby table at some
             // point since the swap, meaning that the current or next usage
             // must be from the new active table.
-            if epoch <= first_epoch_after_update && first_epoch_after_update % 2 != 0 {
+            if epoch <= first_epoch_after_swap && first_epoch_after_swap % 2 != 0 {
                 blocking_readers.insert(key);
             }
         }
 
         // Wait until no reader is making use of the standby table.
         while !blocking_readers.is_empty() {
-            blocking_readers.retain(|key| {
-                let info = match self.readers.lock().unwrap().get(*key) {
-                    None => {
-                        // This Reader has been dropped.
-                        return false;
-                    }
-                    Some(orig) => orig.clone(),
-                };
+            {
+                let readers = self.readers.lock().unwrap();
+                blocking_readers.retain(|key| {
+                    let info = match readers.get(*key) {
+                        None => {
+                            // This Reader has been dropped.
+                            return false;
+                        }
+                        Some(info) => info,
+                    };
 
-                let epoch = info.epoch.load(Ordering::Acquire);
-                let first_epoch_after_update =
-                    info.first_epoch_after_update.load(Ordering::Acquire);
+                    let epoch = info.epoch.load(Ordering::SeqCst);
+                    let first_epoch_after_swap =
+                        info.first_epoch_after_swap.load(Ordering::SeqCst);
 
-                epoch <= first_epoch_after_update && first_epoch_after_update % 2 != 0
-            });
+                    epoch <= first_epoch_after_swap && first_epoch_after_swap % 2 != 0
+                });
+            }
 
             if !blocking_readers.is_empty() {
                 // Instead of busy looping we will yield this thread and come
@@ -227,8 +230,11 @@ impl<'w, T> WriteGuard<'w, T> {
 
 impl<'w, T> Drop for WriteGuard<'w, T> {
     fn drop(&mut self) {
-        // Swap the active and standby table.
-        drop(&mut self.standby_table);
+        // I initially implemented this as drop, and explicitly called
+        // 'drop(standby_table)'. This didn't actually take effect until the end
+        // of this function though, causing us to record the epochs before the
+        // swap had occurred. Caught by tsan & loom.
+        self.standby_table.swap_active_and_standby();
 
         // Make sure that swap occurs before recording the epoch.
         fence(Ordering::SeqCst);
@@ -238,11 +244,11 @@ impl<'w, T> Drop for WriteGuard<'w, T> {
             // reader so that we will know if it is safe to update the new
             // standby table.
             debug_assert_le!(
-                info.first_epoch_after_update.load(Ordering::Acquire),
-                info.epoch.load(Ordering::Acquire)
+                info.first_epoch_after_swap.load(Ordering::SeqCst),
+                info.epoch.load(Ordering::SeqCst)
             );
-            info.first_epoch_after_update
-                .store(info.epoch.load(Ordering::Acquire), Ordering::Release);
+            info.first_epoch_after_swap
+                .store(info.epoch.load(Ordering::SeqCst), Ordering::SeqCst);
         }
     }
 }
