@@ -4,19 +4,41 @@ use crate::types::*;
 use slab::Slab;
 use std::fmt;
 
+pub trait UpdateTables<T, R> {
+    fn apply_first(&mut self, table: &mut T) -> R;
+
+    fn apply_second(mut self: Box<Self>, table: &mut T) {
+        Self::apply_first(&mut self, table);
+    }
+}
+
+
 /// Operations that update the data held internally. Users mutate the tables by
-/// implementing this trait for each function to be performed on the tables.
+/// implementing this trait for each function to be performed on the tables. For
+/// examples check the implementations for the collections.
 ///
 /// Users must be careful to guarantee that apply_first and apply_second cause
-/// the tables to end up in the same state.
+/// the tables to end up in the same state. They also must be certain not to use
+/// the return value to mutate the underlying table, since this likely can't be
+/// mimiced in 'apply_second'.
 ///
-/// It is highly recommended not to include types that allow for interior
-/// mutability, since that can lead to the caller returning a reference to part
-/// of an underlying table. If the reader then mutates this outside of
-/// UpdateTables, this is can cause divergence between the tables since
-/// apply_second isn't aware of this mutation.
+/// It is *highly* discouraged to create updates which return mutable references
+/// to the table's internals. E.g:
 ///
-/// Even without allowing references this issue is still possible:
+///```compile_fail
+/// struct MutableRef {}
+/// impl<'a, T> UpdateTablesLifetime<'a, Vec<T>, &'a mut T> for MutableRef {
+///    fn apply_first(&mut self, table: &'a mut Vec<T>) -> &'a mut T {
+///        &mut table[0]
+///    }
+///    fn apply_second(self, table: &mut Vec<T>) {
+///        &mut table[0];
+///    }
+/// }
+/// ```
+///
+/// Even without the explicit lifetime, which allows for mutable references,
+/// this issue is still possible.
 ///
 /// ```
 /// use std::sync::Arc;
@@ -31,19 +53,15 @@ use std::fmt;
 ///     let opt_ref = ret_owned_value(&opt);
 ///     *opt_ref.borrow_mut() += 1;
 ///     println!("{:?}, {:?}", opt_ref, opt);
+///     // prints: "RefCell { value: 4 }, [RefCell { value: 4 }, RefCell { value: 5 }]"
 /// }
 /// ```
 ///
-/// prints: "RefCell { value: 4 }, [RefCell { value: 4 }, RefCell { value: 5 }]"
-
-pub trait UpdateTables<T, R> {
-    fn apply_first(&mut self, table: &mut T) -> R;
-
-    fn apply_second(mut self: Box<Self>, table: &mut T) {
-        Self::apply_first(&mut self, table);
-    }
-}
-
+/// Therefore it is also highly recommended not to include types that allow for
+/// interior mutability, since that can lead to the caller returning a reference
+/// to part of an underlying table. If the reader then mutates this outside of
+/// UpdateTables, this is can cause divergence between the tables since
+/// apply_second isn't aware of this mutation.
 pub trait UpdateTablesLifetime<'a, T, R> {
     fn apply_first(&mut self, table: &'a mut T) -> R;
 
@@ -435,6 +453,17 @@ mod test {
         }
     }
 
+    /// This is an example of what not to do!
+    struct MutableRef {}
+    impl<'a, T> UpdateTablesLifetime<'a, Vec<T>, &'a mut T> for MutableRef {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) -> &'a mut T {
+            &mut table[0]
+        }
+        fn apply_second(self, table: &mut Vec<T>) {
+            &mut table[0];
+        }
+    }
+
     #[test]
     fn one_write_guard() {
         let mut writer = Writer::<Vec<i32>>::default();
@@ -593,5 +622,21 @@ mod test {
             format!("{:?}", reader.read()),
             "ReadGuard { active_table: [2] }"
         );
+    }
+
+    #[test]
+    fn mutable_ref() {
+        // Show that when the Writer is dropped, Readers remain valid.
+        let mut writer = Writer::<Vec<i32>>::default();
+        let mut reader = writer.new_reader();
+
+        {
+            let mut wg = writer.write();
+            wg.update_tables_lifetime(PushVec { value: 2 });
+            let mr = wg.update_tables_lifetime(MutableRef {});
+            *mr = 10;
+        }
+
+        assert_eq!(*reader.read(), vec![10]);
     }
 }
