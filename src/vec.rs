@@ -8,7 +8,7 @@
 /// table without recording it.
 pub mod vec {
     use crate::primitives;
-    use crate::primitives::UpdateTables;
+    use crate::primitives::{UpdateTables, UpdateTablesLifetime};
     use std::ops::RangeBounds;
 
     pub struct Reader<T> {
@@ -156,9 +156,17 @@ pub mod vec {
     struct SwapRemove {
         index: usize,
     }
-    impl<T> UpdateTables<Vec<T>, T> for SwapRemove {
-        fn apply_first(&mut self, table: &mut Vec<T>) -> T {
+    impl SwapRemove {
+        fn apply<'a, T>(&mut self, table: &'a mut Vec<T>) -> T {
             table.swap_remove(self.index)
+        }
+    }
+    impl<'a, T> UpdateTablesLifetime<'a, Vec<T>, T> for SwapRemove {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) -> T {
+            self.apply(table)
+        }
+        fn apply_second(mut self, table: &mut Vec<T>) {
+            (&mut self).apply(table);
         }
     }
 
@@ -168,14 +176,14 @@ pub mod vec {
     {
         range: R,
     }
-    impl<T, R> UpdateTables<Vec<T>, Vec<T>> for Drain<R>
+    impl<'a, T, R> UpdateTablesLifetime<'a, Vec<T>, std::vec::Drain<'a, T>> for Drain<R>
     where
         R: 'static + Clone + RangeBounds<usize>,
     {
-        fn apply_first(&mut self, table: &mut Vec<T>) -> Vec<T> {
-            table.drain(self.range.clone()).collect()
+        fn apply_first(&mut self, table: &'a mut Vec<T>) -> std::vec::Drain<'a, T> {
+            table.drain(self.range.clone())
         }
-        fn apply_second(self: Box<Self>, table: &mut Vec<T>) {
+        fn apply_second(self, table: &mut Vec<T>) {
             table.drain(self.range);
         }
     }
@@ -236,22 +244,23 @@ pub mod vec {
         pub fn truncate(&mut self, len: usize) {
             self.guard.update_tables(Truncate { len })
         }
+    }
 
-        pub fn swap_remove(&mut self, index: usize) -> T {
-            self.guard.update_tables(SwapRemove { index })
+    impl<'w, 'a, T> WriteGuard<'w, T> {
+        pub fn swap_remove(&'a mut self, index: usize) -> T {
+            self.guard.update_tables_lifetime(SwapRemove { index })
         }
-
         /// Performs the same mutation on the data as Vec::drain, but instead of
         /// returning an iterator to the drained elements, it returns a Vec of
         /// the drained elements.
         ///
         /// This is because the return value from update_tables must own its own
         /// data.
-        pub fn drain<R>(&mut self, range: R) -> Vec<T>
+        pub fn drain<R>(&'a mut self, range: R) -> std::vec::Drain<'a, T>
         where
             R: 'static + Clone + Send + RangeBounds<usize>,
         {
-            self.guard.update_tables(Drain { range })
+            self.guard.update_tables_lifetime(Drain { range })
         }
     }
 
@@ -485,11 +494,35 @@ mod test {
             for i in 0..5 {
                 wg.push(i + 1);
             }
-            assert_eq!(wg.drain(1..4), vec![2, 3, 4]);
+            assert_eq!(wg.drain(1..4).collect::<Vec<_>>(), vec![2, 3, 4]);
         }
 
         assert_eq!(*reader.read(), vec![1, 5]);
         assert_eq!(*writer.write(), vec![1, 5]);
         assert_eq!(*reader.read(), vec![1, 5]);
+    }
+
+    #[test]
+    fn lifetimes() {
+        let mut writer = Writer::<i32>::new();
+        let mut reader = writer.new_reader();
+
+        {
+            let mut wg = writer.write();
+            for i in 0..5 {
+                wg.push(i + 1);
+            }
+            // Switching the order of 'drain' and 'swapped' fails to compile due
+            // to the borrow checker, since 'drain' is tied to the lifetime of
+            // table.
+            let swapped = wg.swap_remove(1);
+            let drain = wg.drain(1..4);
+            assert_eq!(drain.collect::<Vec<_>>(), vec![5, 3, 4]);
+            assert_eq!(swapped, 2);
+        }
+
+        assert_eq!(*reader.read(), vec![1]);
+        assert_eq!(*writer.write(), vec![1]);
+        assert_eq!(*reader.read(), vec![1]);
     }
 }

@@ -9,12 +9,50 @@ use std::fmt;
 ///
 /// Users must be careful to guarantee that apply_first and apply_second cause
 /// the tables to end up in the same state.
+///
+/// It is highly recommended not to include types that allow for interior
+/// mutability, since that can lead to the caller returning a reference to part
+/// of an underlying table. If the reader then mutates this outside of
+/// UpdateTables, this is can cause divergence between the tables since
+/// apply_second isn't aware of this mutation.
+///
+/// Even without allowing references this issue is still possible:
+///
+/// ```
+/// use std::sync::Arc;
+/// use std::cell::RefCell;
+///
+/// fn ret_owned_value<T: Clone>(opt : &Vec<T>) -> T {
+///     opt[0].clone()
+/// }
+///
+/// fn main() {
+///     let opt = vec![Arc::new(RefCell::new(3)), Arc::new(RefCell::new(5))];
+///     let opt_ref = ret_owned_value(&opt);
+///     *opt_ref.borrow_mut() += 1;
+///     println!("{:?}, {:?}", opt_ref, opt);
+/// }
+/// ```
+///
+/// prints: "RefCell { value: 4 }, [RefCell { value: 4 }, RefCell { value: 5 }]"
+
 pub trait UpdateTables<T, R> {
     fn apply_first(&mut self, table: &mut T) -> R;
 
     fn apply_second(mut self: Box<Self>, table: &mut T) {
         Self::apply_first(&mut self, table);
     }
+}
+
+pub trait UpdateTablesLifetime<'a, T, R> {
+    fn apply_first(&mut self, table: &'a mut T) -> R;
+
+    /// Unfortunately we can't offer a default implementationt to call
+    /// 'apply_first'. This is because we can't constrain 'apply_second' with a
+    /// lifetime on 'table' because this would mean that each update has a
+    /// unique type in 'apply_second', making it impossible for us to hold
+    /// 'ops_to_replay' since each op would have a different type.
+    fn apply_second(self, table: &mut T);
 }
 
 /// Writer is the entry point for using active_standy primitives, and for
@@ -218,6 +256,19 @@ impl<'w, T> WriteGuard<'w, T> {
 
         res
     }
+
+    pub fn update_tables_lifetime<'a, R>(
+        &'a mut self,
+        mut update: impl UpdateTablesLifetime<'a, T, R> + 'static + Sized,
+    ) -> R {
+        let res = update.apply_first(&mut self.table);
+
+        self.ops_to_replay.push(Box::new(move |table| {
+            update.apply_second(table);
+        }));
+
+        res
+    }
 }
 
 impl<'w, T> Drop for WriteGuard<'w, T> {
@@ -333,6 +384,13 @@ impl<'w, T> SendWriteGuard<'w, T> {
     ) -> R {
         self.guard.update_tables(update)
     }
+
+    pub fn update_tables_lifetime<'a, R>(
+        &'a mut self,
+        update: impl UpdateTablesLifetime<'a, T, R> + 'static + Sized + Send,
+    ) -> R {
+        self.guard.update_tables_lifetime(update)
+    }
 }
 
 impl<'w, T> std::ops::Deref for SendWriteGuard<'w, T> {
@@ -350,22 +408,30 @@ mod test {
     struct PushVec<T> {
         value: T,
     }
-    impl<T> UpdateTables<Vec<T>, ()> for PushVec<T>
+    impl<'a, T> UpdateTablesLifetime<'a, Vec<T>, ()> for PushVec<T>
     where
         T: Clone,
     {
-        fn apply_first(&mut self, table: &mut Vec<T>) {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) {
             table.push(self.value.clone());
         }
-        fn apply_second(self: Box<Self>, table: &mut Vec<T>) {
+        fn apply_second(self, table: &mut Vec<T>) {
             table.push(self.value); // Move the value instead of cloning.
         }
     }
 
     struct PopVec {}
-    impl<T> UpdateTables<Vec<T>, Option<T>> for PopVec {
-        fn apply_first(&mut self, table: &mut Vec<T>) -> Option<T> {
+    impl PopVec {
+        fn apply<'a, T>(&mut self, table: &'a mut Vec<T>) -> Option<T> {
             table.pop()
+        }
+    }
+    impl<'a, T> UpdateTablesLifetime<'a, Vec<T>, Option<T>> for PopVec {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) -> Option<T> {
+            self.apply(table)
+        }
+        fn apply_second(mut self, table: &mut Vec<T>) {
+            (&mut self).apply(table);
         }
     }
 
@@ -402,7 +468,7 @@ mod test {
 
         {
             let mut wg = writer.write();
-            wg.update_tables(PushVec { value: 2 });
+            wg.update_tables_lifetime(PushVec { value: 2 });
             assert_eq!(wg.len(), 1);
             assert_eq!(reader.read().len(), 0);
         }
@@ -416,11 +482,11 @@ mod test {
         let mut writer = Writer::<Vec<i32>>::default();
         {
             let mut wg = writer.write();
-            wg.update_tables(PushVec { value: 2 });
-            wg.update_tables(PushVec { value: 3 });
-            wg.update_tables(PushVec { value: 4 });
-            wg.update_tables(PopVec {});
-            wg.update_tables(PushVec { value: 5 });
+            wg.update_tables_lifetime(PushVec { value: 2 });
+            wg.update_tables_lifetime(PushVec { value: 3 });
+            wg.update_tables_lifetime(PushVec { value: 4 });
+            wg.update_tables_lifetime(PopVec {});
+            wg.update_tables_lifetime(PushVec { value: 5 });
         }
         let mut reader = writer.new_reader();
         assert_eq!(*reader.read(), vec![2, 3, 5]);
@@ -431,20 +497,20 @@ mod test {
         let mut writer = Writer::<Vec<Box<i32>>>::default();
         {
             let mut wg = writer.write();
-            wg.update_tables(PushVec { value: Box::new(2) });
-            wg.update_tables(PushVec { value: Box::new(3) });
-            wg.update_tables(PopVec {});
-            wg.update_tables(PushVec { value: Box::new(5) });
+            wg.update_tables_lifetime(PushVec { value: Box::new(2) });
+            wg.update_tables_lifetime(PushVec { value: Box::new(3) });
+            wg.update_tables_lifetime(PopVec {});
+            wg.update_tables_lifetime(PushVec { value: Box::new(5) });
         }
         let mut reader = writer.new_reader();
         assert_eq!(*reader.read(), vec![Box::new(2), Box::new(5)]);
 
         {
             let mut wg = writer.write();
-            wg.update_tables(PushVec { value: Box::new(9) });
-            wg.update_tables(PushVec { value: Box::new(8) });
-            wg.update_tables(PopVec {});
-            wg.update_tables(PushVec { value: Box::new(7) });
+            wg.update_tables_lifetime(PushVec { value: Box::new(9) });
+            wg.update_tables_lifetime(PushVec { value: Box::new(8) });
+            wg.update_tables_lifetime(PopVec {});
+            wg.update_tables_lifetime(PushVec { value: Box::new(7) });
         }
         let mut reader = writer.new_reader();
         assert_eq!(
@@ -454,7 +520,7 @@ mod test {
 
         {
             let mut wg = writer.write();
-            wg.update_tables(PopVec {});
+            wg.update_tables_lifetime(PopVec {});
         }
         let mut reader = writer.new_reader();
         assert_eq!(*reader.read(), vec![Box::new(2), Box::new(5), Box::new(9)]);
@@ -479,11 +545,11 @@ mod test {
 
         {
             let mut wg = writer.write();
-            wg.update_tables(PushVec { value: 2 });
-            wg.update_tables(PushVec { value: 3 });
-            wg.update_tables(PushVec { value: 4 });
-            wg.update_tables(PopVec {});
-            wg.update_tables(PushVec { value: 5 });
+            wg.update_tables_lifetime(PushVec { value: 2 });
+            wg.update_tables_lifetime(PushVec { value: 3 });
+            wg.update_tables_lifetime(PushVec { value: 4 });
+            wg.update_tables_lifetime(PopVec {});
+            wg.update_tables_lifetime(PushVec { value: 5 });
         }
 
         assert!(handler.join().is_ok());
@@ -499,11 +565,11 @@ mod test {
 
             {
                 let mut wg = writer.write();
-                wg.update_tables(PushVec { value: 2 });
-                wg.update_tables(PushVec { value: 3 });
-                wg.update_tables(PushVec { value: 4 });
-                wg.update_tables(PopVec {});
-                wg.update_tables(PushVec { value: 5 });
+                wg.update_tables_lifetime(PushVec { value: 2 });
+                wg.update_tables_lifetime(PushVec { value: 3 });
+                wg.update_tables_lifetime(PushVec { value: 4 });
+                wg.update_tables_lifetime(PopVec {});
+                wg.update_tables_lifetime(PushVec { value: 5 });
             }
         }
         assert_eq!(*reader.read(), vec![2, 3, 5]);
@@ -516,7 +582,7 @@ mod test {
         assert_eq!(format!("{:?}", writer), "Writer { num_ops_to_replay: 0 }");
         {
             let mut wg = writer.write();
-            wg.update_tables(PushVec { value: 2 });
+            wg.update_tables_lifetime(PushVec { value: 2 });
             assert_eq!(
                 format!("{:?}", wg),
                 "WriteGuard { num_ops_to_replay: 1, standby_table: TableWriteGuard { standby_table: [2] } }");
