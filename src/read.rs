@@ -71,7 +71,7 @@ impl<T> Reader<T> {
         // increment epoch on transitions from 0 <-> 1 guards. This would make
         // Reader re-entrant.
         let old_epoch = self.my_epoch.load(Ordering::Acquire);
-        debug_assert_eq!(old_epoch % 2, 0);
+        assert_eq!(old_epoch % 2, 0);
         self.my_epoch.store(old_epoch + 1, Ordering::Release);
 
         // The reader must update the epoch before taking the table. This

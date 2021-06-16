@@ -4,15 +4,6 @@ use crate::types::*;
 use slab::Slab;
 use std::fmt;
 
-pub trait UpdateTables<T, R> {
-    fn apply_first(&mut self, table: &mut T) -> R;
-
-    fn apply_second(mut self: Box<Self>, table: &mut T) {
-        Self::apply_first(&mut self, table);
-    }
-}
-
-
 /// Operations that update the data held internally. Users mutate the tables by
 /// implementing this trait for each function to be performed on the tables. For
 /// examples check the implementations for the collections.
@@ -27,7 +18,7 @@ pub trait UpdateTables<T, R> {
 ///
 ///```compile_fail
 /// struct MutableRef {}
-/// impl<'a, T> UpdateTablesLifetime<'a, Vec<T>, &'a mut T> for MutableRef {
+/// impl<'a, T> UpdateTables<'a, Vec<T>, &'a mut T> for MutableRef {
 ///    fn apply_first(&mut self, table: &'a mut Vec<T>) -> &'a mut T {
 ///        &mut table[0]
 ///    }
@@ -62,7 +53,28 @@ pub trait UpdateTables<T, R> {
 /// to part of an underlying table. If the reader then mutates this outside of
 /// UpdateTables, this is can cause divergence between the tables since
 /// apply_second isn't aware of this mutation.
-pub trait UpdateTablesLifetime<'a, T, R> {
+///
+/// An example implementation taken from collections::vec:
+/// ```compile_fail
+/// struct SwapRemove {
+///     index: usize,
+/// }
+/// impl SwapRemove {
+///     // Not needed, but can be convenient for making both applies the same.
+///     fn apply<'a, T>(&mut self, table: &'a mut Vec<T>) -> T {
+///         table.swap_remove(self.index)
+///     }
+/// }
+/// impl<'a, T> UpdateTables<'a, Vec<T>, T> for SwapRemove {
+///     fn apply_first(&mut self, table: &'a mut Vec<T>) -> T {
+///         self.apply(table)
+///     }
+///     fn apply_second(mut self, table: &mut Vec<T>) {
+///         self.apply(table);
+///     }
+/// }
+/// ```
+pub trait UpdateTables<'a, T, R> {
     fn apply_first(&mut self, table: &'a mut T) -> R;
 
     /// Unfortunately we can't offer a default implementationt to call
@@ -265,19 +277,9 @@ impl<'w, T> WriteGuard<'w, T> {
     /// The update passed in must be valid for 'static because it will outlive
     /// the WriteGuard taking the update, so we can't make any limitations on
     /// it.
-    pub fn update_tables<R>(&mut self, mut update: impl UpdateTables<T, R> + 'static + Sized) -> R {
-        let res = update.apply_first(&mut self.table);
-
-        self.ops_to_replay.push(Box::new(move |table| {
-            Box::new(update).apply_second(table);
-        }));
-
-        res
-    }
-
-    pub fn update_tables_lifetime<'a, R>(
+    pub fn update_tables<'a, R>(
         &'a mut self,
-        mut update: impl UpdateTablesLifetime<'a, T, R> + 'static + Sized,
+        mut update: impl UpdateTables<'a, T, R> + 'static + Sized,
     ) -> R {
         let res = update.apply_first(&mut self.table);
 
@@ -396,18 +398,11 @@ pub struct SendWriteGuard<'w, T> {
 }
 
 impl<'w, T> SendWriteGuard<'w, T> {
-    pub fn update_tables<R>(
-        &mut self,
-        update: impl UpdateTables<T, R> + 'static + Sized + Send,
+    pub fn update_tables<'a, R>(
+        &'a mut self,
+        update: impl UpdateTables<'a, T, R> + 'static + Sized + Send,
     ) -> R {
         self.guard.update_tables(update)
-    }
-
-    pub fn update_tables_lifetime<'a, R>(
-        &'a mut self,
-        update: impl UpdateTablesLifetime<'a, T, R> + 'static + Sized + Send,
-    ) -> R {
-        self.guard.update_tables_lifetime(update)
     }
 }
 
@@ -426,7 +421,7 @@ mod test {
     struct PushVec<T> {
         value: T,
     }
-    impl<'a, T> UpdateTablesLifetime<'a, Vec<T>, ()> for PushVec<T>
+    impl<'a, T> UpdateTables<'a, Vec<T>, ()> for PushVec<T>
     where
         T: Clone,
     {
@@ -444,7 +439,7 @@ mod test {
             table.pop()
         }
     }
-    impl<'a, T> UpdateTablesLifetime<'a, Vec<T>, Option<T>> for PopVec {
+    impl<'a, T> UpdateTables<'a, Vec<T>, Option<T>> for PopVec {
         fn apply_first(&mut self, table: &'a mut Vec<T>) -> Option<T> {
             self.apply(table)
         }
@@ -455,7 +450,7 @@ mod test {
 
     /// This is an example of what not to do!
     struct MutableRef {}
-    impl<'a, T> UpdateTablesLifetime<'a, Vec<T>, &'a mut T> for MutableRef {
+    impl<'a, T> UpdateTables<'a, Vec<T>, &'a mut T> for MutableRef {
         fn apply_first(&mut self, table: &'a mut Vec<T>) -> &'a mut T {
             &mut table[0]
         }
@@ -497,7 +492,7 @@ mod test {
 
         {
             let mut wg = writer.write();
-            wg.update_tables_lifetime(PushVec { value: 2 });
+            wg.update_tables(PushVec { value: 2 });
             assert_eq!(wg.len(), 1);
             assert_eq!(reader.read().len(), 0);
         }
@@ -511,11 +506,11 @@ mod test {
         let mut writer = Writer::<Vec<i32>>::default();
         {
             let mut wg = writer.write();
-            wg.update_tables_lifetime(PushVec { value: 2 });
-            wg.update_tables_lifetime(PushVec { value: 3 });
-            wg.update_tables_lifetime(PushVec { value: 4 });
-            wg.update_tables_lifetime(PopVec {});
-            wg.update_tables_lifetime(PushVec { value: 5 });
+            wg.update_tables(PushVec { value: 2 });
+            wg.update_tables(PushVec { value: 3 });
+            wg.update_tables(PushVec { value: 4 });
+            wg.update_tables(PopVec {});
+            wg.update_tables(PushVec { value: 5 });
         }
         let mut reader = writer.new_reader();
         assert_eq!(*reader.read(), vec![2, 3, 5]);
@@ -526,20 +521,20 @@ mod test {
         let mut writer = Writer::<Vec<Box<i32>>>::default();
         {
             let mut wg = writer.write();
-            wg.update_tables_lifetime(PushVec { value: Box::new(2) });
-            wg.update_tables_lifetime(PushVec { value: Box::new(3) });
-            wg.update_tables_lifetime(PopVec {});
-            wg.update_tables_lifetime(PushVec { value: Box::new(5) });
+            wg.update_tables(PushVec { value: Box::new(2) });
+            wg.update_tables(PushVec { value: Box::new(3) });
+            wg.update_tables(PopVec {});
+            wg.update_tables(PushVec { value: Box::new(5) });
         }
         let mut reader = writer.new_reader();
         assert_eq!(*reader.read(), vec![Box::new(2), Box::new(5)]);
 
         {
             let mut wg = writer.write();
-            wg.update_tables_lifetime(PushVec { value: Box::new(9) });
-            wg.update_tables_lifetime(PushVec { value: Box::new(8) });
-            wg.update_tables_lifetime(PopVec {});
-            wg.update_tables_lifetime(PushVec { value: Box::new(7) });
+            wg.update_tables(PushVec { value: Box::new(9) });
+            wg.update_tables(PushVec { value: Box::new(8) });
+            wg.update_tables(PopVec {});
+            wg.update_tables(PushVec { value: Box::new(7) });
         }
         let mut reader = writer.new_reader();
         assert_eq!(
@@ -549,7 +544,7 @@ mod test {
 
         {
             let mut wg = writer.write();
-            wg.update_tables_lifetime(PopVec {});
+            wg.update_tables(PopVec {});
         }
         let mut reader = writer.new_reader();
         assert_eq!(*reader.read(), vec![Box::new(2), Box::new(5), Box::new(9)]);
@@ -574,11 +569,11 @@ mod test {
 
         {
             let mut wg = writer.write();
-            wg.update_tables_lifetime(PushVec { value: 2 });
-            wg.update_tables_lifetime(PushVec { value: 3 });
-            wg.update_tables_lifetime(PushVec { value: 4 });
-            wg.update_tables_lifetime(PopVec {});
-            wg.update_tables_lifetime(PushVec { value: 5 });
+            wg.update_tables(PushVec { value: 2 });
+            wg.update_tables(PushVec { value: 3 });
+            wg.update_tables(PushVec { value: 4 });
+            wg.update_tables(PopVec {});
+            wg.update_tables(PushVec { value: 5 });
         }
 
         assert!(handler.join().is_ok());
@@ -594,11 +589,11 @@ mod test {
 
             {
                 let mut wg = writer.write();
-                wg.update_tables_lifetime(PushVec { value: 2 });
-                wg.update_tables_lifetime(PushVec { value: 3 });
-                wg.update_tables_lifetime(PushVec { value: 4 });
-                wg.update_tables_lifetime(PopVec {});
-                wg.update_tables_lifetime(PushVec { value: 5 });
+                wg.update_tables(PushVec { value: 2 });
+                wg.update_tables(PushVec { value: 3 });
+                wg.update_tables(PushVec { value: 4 });
+                wg.update_tables(PopVec {});
+                wg.update_tables(PushVec { value: 5 });
             }
         }
         assert_eq!(*reader.read(), vec![2, 3, 5]);
@@ -611,7 +606,7 @@ mod test {
         assert_eq!(format!("{:?}", writer), "Writer { num_ops_to_replay: 0 }");
         {
             let mut wg = writer.write();
-            wg.update_tables_lifetime(PushVec { value: 2 });
+            wg.update_tables(PushVec { value: 2 });
             assert_eq!(
                 format!("{:?}", wg),
                 "WriteGuard { num_ops_to_replay: 1, standby_table: TableWriteGuard { standby_table: [2] } }");
@@ -632,8 +627,8 @@ mod test {
 
         {
             let mut wg = writer.write();
-            wg.update_tables_lifetime(PushVec { value: 2 });
-            let mr = wg.update_tables_lifetime(MutableRef {});
+            wg.update_tables(PushVec { value: 2 });
+            let mr = wg.update_tables(MutableRef {});
             *mr = 10;
         }
 

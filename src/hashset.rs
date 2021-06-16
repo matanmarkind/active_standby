@@ -78,14 +78,14 @@ pub mod hashset {
     struct Insert<T> {
         value: T,
     }
-    impl<T> UpdateTables<HashSet<T>, bool> for Insert<T>
+    impl<'a, T> UpdateTables<'a, HashSet<T>, bool> for Insert<T>
     where
         T: Eq + Hash + Clone,
     {
-        fn apply_first(&mut self, table: &mut HashSet<T>) -> bool {
+        fn apply_first(&mut self, table: &'a mut HashSet<T>) -> bool {
             table.insert(self.value.clone())
         }
-        fn apply_second(self: Box<Self>, table: &mut HashSet<T>) {
+        fn apply_second(self, table: &mut HashSet<T>) {
             // Move the value instead of cloning.
             table.insert(self.value);
         }
@@ -94,81 +94,102 @@ pub mod hashset {
     struct Replace<T> {
         value: T,
     }
-    impl<T> UpdateTables<HashSet<T>, Option<T>> for Replace<T>
+    impl<'a, T> UpdateTables<'a, HashSet<T>, Option<T>> for Replace<T>
     where
         T: Eq + Hash + Clone,
     {
-        fn apply_first(&mut self, table: &mut HashSet<T>) -> Option<T> {
+        fn apply_first(&mut self, table: &'a mut HashSet<T>) -> Option<T> {
             table.replace(self.value.clone())
         }
-        fn apply_second(self: Box<Self>, table: &mut HashSet<T>) {
+        fn apply_second(self, table: &mut HashSet<T>) {
             // Move the value instead of cloning.
             table.replace(self.value);
         }
     }
 
     struct Clear {}
-    impl<T> UpdateTables<HashSet<T>, ()> for Clear {
-        fn apply_first(&mut self, table: &mut HashSet<T>) {
+    impl<'a, T> UpdateTables<'a, HashSet<T>, ()> for Clear {
+        fn apply_first(&mut self, table: &'a mut HashSet<T>) {
             table.clear()
+        }
+        fn apply_second(mut self, table: &mut HashSet<T>) {
+            self.apply_first(table);
         }
     }
 
     struct Remove<Q> {
         value_like: Q,
     }
-    impl<T, Q> UpdateTables<HashSet<T>, bool> for Remove<Q>
+    impl<'a, T, Q> UpdateTables<'a, HashSet<T>, bool> for Remove<Q>
     where
         Q: Eq + Hash,
         T: Eq + Hash + std::borrow::Borrow<Q>,
     {
-        fn apply_first(&mut self, table: &mut HashSet<T>) -> bool {
+        fn apply_first(&mut self, table: &'a mut HashSet<T>) -> bool {
             table.remove(&self.value_like)
+        }
+        fn apply_second(mut self, table: &mut HashSet<T>) {
+            self.apply_first(table);
         }
     }
 
     struct Take<Q> {
         value_like: Q,
     }
-    impl<T, Q> UpdateTables<HashSet<T>, Option<T>> for Take<Q>
+    impl<'a, T, Q> UpdateTables<'a, HashSet<T>, Option<T>> for Take<Q>
     where
         Q: Eq + Hash,
         T: Eq + Hash + std::borrow::Borrow<Q>,
     {
-        fn apply_first(&mut self, table: &mut HashSet<T>) -> Option<T> {
+        fn apply_first(&mut self, table: &'a mut HashSet<T>) -> Option<T> {
             table.take(&self.value_like)
+        }
+        fn apply_second(mut self, table: &mut HashSet<T>) {
+            self.apply_first(table);
         }
     }
 
     struct Reserve {
         additional: usize,
     }
-    impl<T> UpdateTables<HashSet<T>, ()> for Reserve
+    impl<'a, T> UpdateTables<'a, HashSet<T>, ()> for Reserve
     where
         T: Eq + Hash,
     {
-        fn apply_first(&mut self, table: &mut HashSet<T>) {
+        fn apply_first(&mut self, table: &'a mut HashSet<T>) {
             table.reserve(self.additional)
+        }
+        fn apply_second(mut self, table: &mut HashSet<T>) {
+            self.apply_first(table);
         }
     }
 
     struct ShrinkToFit {}
-    impl<T> UpdateTables<HashSet<T>, ()> for ShrinkToFit
+    impl<'a, T> UpdateTables<'a, HashSet<T>, ()> for ShrinkToFit
     where
         T: Eq + Hash,
     {
-        fn apply_first(&mut self, table: &mut HashSet<T>) {
+        fn apply_first(&mut self, table: &'a mut HashSet<T>) {
             table.shrink_to_fit()
+        }
+        fn apply_second(mut self, table: &mut HashSet<T>) {
+            self.apply_first(table);
         }
     }
 
     struct Drain {}
-    impl<T> UpdateTables<HashSet<T>, HashSet<T>> for Drain
+    impl<'a, T> UpdateTables<'a, HashSet<T>, std::collections::hash_set::Drain<'a, T>> for Drain
     where
         T: Eq + Hash,
     {
-        fn apply_first(&mut self, table: &mut HashSet<T>) -> HashSet<T> {
-            table.drain().collect()
+        fn apply_first(
+            &mut self,
+            table: &'a mut HashSet<T>,
+        ) -> std::collections::hash_set::Drain<'a, T> {
+            table.drain()
+        }
+        fn apply_second(mut self, table: &mut HashSet<T>) {
+            self.apply_first(table);
         }
     }
 
@@ -179,20 +200,20 @@ pub mod hashset {
         f: F,
         _compile_k_v: std::marker::PhantomData<T>,
     }
-    impl<T, F> UpdateTables<HashSet<T>, ()> for Retain<T, F>
+    impl<'a, T, F> UpdateTables<'a, HashSet<T>, ()> for Retain<T, F>
     where
         T: Eq + Hash,
         F: 'static + Clone + FnMut(&T) -> bool,
     {
-        fn apply_first(&mut self, table: &mut HashSet<T>) {
+        fn apply_first(&mut self, table: &'a mut HashSet<T>) {
             table.retain(self.f.clone())
         }
-        fn apply_second(self: Box<Self>, table: &mut HashSet<T>) {
+        fn apply_second(self, table: &mut HashSet<T>) {
             table.retain(self.f)
         }
     }
 
-    impl<'w, T> WriteGuard<'w, T>
+    impl<'w, 'a, T> WriteGuard<'w, T>
     where
         T: 'static + Eq + Hash + Clone + Send,
     {
@@ -232,7 +253,7 @@ pub mod hashset {
             self.guard.update_tables(ShrinkToFit {})
         }
 
-        pub fn drain(&mut self) -> HashSet<T> {
+        pub fn drain(&'a mut self) -> std::collections::hash_set::Drain<'a, T> {
             self.guard.update_tables(Drain {})
         }
 
@@ -378,7 +399,10 @@ mod test {
             wg.insert("hello");
             wg.insert("world");
             assert_eq!(*wg, expected);
-            assert_eq!(wg.drain(), expected);
+            assert_eq!(
+                wg.drain().collect::<std::collections::HashSet<_>>(),
+                expected
+            );
         }
 
         assert!(reader.read().is_empty());

@@ -49,9 +49,7 @@ mod types;
 mod write;
 pub mod primitives {
     pub use crate::read::{ReadGuard, Reader};
-    pub use crate::write::{
-        SendWriteGuard, SendWriter, UpdateTables, UpdateTablesLifetime, WriteGuard, Writer,
-    };
+    pub use crate::write::{SendWriteGuard, SendWriter, UpdateTables, WriteGuard, Writer};
 }
 
 mod btreemap;

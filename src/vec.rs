@@ -8,7 +8,7 @@
 /// table without recording it.
 pub mod vec {
     use crate::primitives;
-    use crate::primitives::{UpdateTables, UpdateTablesLifetime};
+    use crate::primitives::UpdateTables;
     use std::ops::RangeBounds;
 
     pub struct Reader<T> {
@@ -76,14 +76,14 @@ pub mod vec {
     struct Push<T> {
         value: T,
     }
-    impl<T> UpdateTables<Vec<T>, ()> for Push<T>
+    impl<'a, T> UpdateTables<'a, Vec<T>, ()> for Push<T>
     where
         T: Clone,
     {
-        fn apply_first(&mut self, table: &mut Vec<T>) {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) {
             table.push(self.value.clone());
         }
-        fn apply_second(self: Box<Self>, table: &mut Vec<T>) {
+        fn apply_second(self, table: &mut Vec<T>) {
             table.push(self.value); // Move the value instead of cloning.
         }
     }
@@ -92,64 +92,82 @@ pub mod vec {
         index: usize,
         element: T,
     }
-    impl<T> UpdateTables<Vec<T>, ()> for Insert<T>
+    impl<'a, T> UpdateTables<'a, Vec<T>, ()> for Insert<T>
     where
         T: Clone,
     {
-        fn apply_first(&mut self, table: &mut Vec<T>) {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) {
             table.insert(self.index, self.element.clone())
         }
-        fn apply_second(self: Box<Self>, table: &mut Vec<T>) {
+        fn apply_second(self, table: &mut Vec<T>) {
             // Move the value instead of cloning.
             table.insert(self.index, self.element)
         }
     }
 
     struct Clear {}
-    impl<T> UpdateTables<Vec<T>, ()> for Clear {
+    impl<'a, T> UpdateTables<'a, Vec<T>, ()> for Clear {
         fn apply_first(&mut self, table: &mut Vec<T>) {
             table.clear()
+        }
+        fn apply_second(mut self, table: &mut Vec<T>) {
+            self.apply_first(table);
         }
     }
 
     struct Pop {}
-    impl<T> UpdateTables<Vec<T>, Option<T>> for Pop {
-        fn apply_first(&mut self, table: &mut Vec<T>) -> Option<T> {
+    impl<'a, T> UpdateTables<'a, Vec<T>, Option<T>> for Pop {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) -> Option<T> {
             table.pop()
+        }
+        fn apply_second(mut self, table: &mut Vec<T>) {
+            self.apply_first(table);
         }
     }
 
     struct Reserve {
         additional: usize,
     }
-    impl<T> UpdateTables<Vec<T>, ()> for Reserve {
-        fn apply_first(&mut self, table: &mut Vec<T>) {
+    impl<'a, T> UpdateTables<'a, Vec<T>, ()> for Reserve {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) {
             table.reserve(self.additional)
+        }
+        fn apply_second(mut self, table: &mut Vec<T>) {
+            self.apply_first(table);
         }
     }
 
     struct ReserveExact {
         additional: usize,
     }
-    impl<T> UpdateTables<Vec<T>, ()> for ReserveExact {
-        fn apply_first(&mut self, table: &mut Vec<T>) {
+    impl<'a, T> UpdateTables<'a, Vec<T>, ()> for ReserveExact {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) {
             table.reserve(self.additional)
+        }
+        fn apply_second(mut self, table: &mut Vec<T>) {
+            self.apply_first(table);
         }
     }
 
     struct ShrinkToFit {}
-    impl<T> UpdateTables<Vec<T>, ()> for ShrinkToFit {
-        fn apply_first(&mut self, table: &mut Vec<T>) {
+    impl<'a, T> UpdateTables<'a, Vec<T>, ()> for ShrinkToFit {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) {
             table.shrink_to_fit()
+        }
+        fn apply_second(mut self, table: &mut Vec<T>) {
+            self.apply_first(table);
         }
     }
 
     struct Truncate {
         len: usize,
     }
-    impl<T> UpdateTables<Vec<T>, ()> for Truncate {
-        fn apply_first(&mut self, table: &mut Vec<T>) {
+    impl<'a, T> UpdateTables<'a, Vec<T>, ()> for Truncate {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) {
             table.truncate(self.len)
+        }
+        fn apply_second(mut self, table: &mut Vec<T>) {
+            self.apply_first(table);
         }
     }
 
@@ -161,12 +179,12 @@ pub mod vec {
             table.swap_remove(self.index)
         }
     }
-    impl<'a, T> UpdateTablesLifetime<'a, Vec<T>, T> for SwapRemove {
+    impl<'a, T> UpdateTables<'a, Vec<T>, T> for SwapRemove {
         fn apply_first(&mut self, table: &'a mut Vec<T>) -> T {
             self.apply(table)
         }
         fn apply_second(mut self, table: &mut Vec<T>) {
-            (&mut self).apply(table);
+            self.apply(table);
         }
     }
 
@@ -176,7 +194,7 @@ pub mod vec {
     {
         range: R,
     }
-    impl<'a, T, R> UpdateTablesLifetime<'a, Vec<T>, std::vec::Drain<'a, T>> for Drain<R>
+    impl<'a, T, R> UpdateTables<'a, Vec<T>, std::vec::Drain<'a, T>> for Drain<R>
     where
         R: 'static + Clone + RangeBounds<usize>,
     {
@@ -195,28 +213,28 @@ pub mod vec {
         f: F,
         _compile_t: std::marker::PhantomData<T>,
     }
-    impl<T, F> UpdateTables<Vec<T>, ()> for Retain<T, F>
+    impl<'a, T, F> UpdateTables<'a, Vec<T>, ()> for Retain<T, F>
     where
         F: 'static + Clone + FnMut(&T) -> bool,
     {
-        fn apply_first(&mut self, table: &mut Vec<T>) {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) {
             table.retain(self.f.clone())
         }
-        fn apply_second(self: Box<Self>, table: &mut Vec<T>) {
+        fn apply_second(self, table: &mut Vec<T>) {
             table.retain(self.f)
         }
     }
 
     // Here we reimplement the mutable interface of a Vec.
-    impl<'w, T> WriteGuard<'w, T>
+    impl<'w, 'a, T> WriteGuard<'w, T>
     where
         T: 'static + Clone + Send,
     {
-        pub fn push(&mut self, value: T) {
+        pub fn push(&'a mut self, value: T) {
             self.guard.update_tables(Push { value })
         }
 
-        pub fn insert(&mut self, index: usize, element: T) {
+        pub fn insert(&'a mut self, index: usize, element: T) {
             self.guard.update_tables(Insert { index, element })
         }
     }
@@ -244,23 +262,18 @@ pub mod vec {
         pub fn truncate(&mut self, len: usize) {
             self.guard.update_tables(Truncate { len })
         }
+
+        pub fn swap_remove(&mut self, index: usize) -> T {
+            self.guard.update_tables(SwapRemove { index })
+        }
     }
 
     impl<'w, 'a, T> WriteGuard<'w, T> {
-        pub fn swap_remove(&'a mut self, index: usize) -> T {
-            self.guard.update_tables_lifetime(SwapRemove { index })
-        }
-        /// Performs the same mutation on the data as Vec::drain, but instead of
-        /// returning an iterator to the drained elements, it returns a Vec of
-        /// the drained elements.
-        ///
-        /// This is because the return value from update_tables must own its own
-        /// data.
         pub fn drain<R>(&'a mut self, range: R) -> std::vec::Drain<'a, T>
         where
             R: 'static + Clone + Send + RangeBounds<usize>,
         {
-            self.guard.update_tables_lifetime(Drain { range })
+            self.guard.update_tables(Drain { range })
         }
     }
 

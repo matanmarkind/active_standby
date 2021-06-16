@@ -79,23 +79,29 @@ pub mod btreemap {
         key: K,
         value: V,
     }
-    impl<K, V> UpdateTables<BTreeMap<K, V>, Option<V>> for Insert<K, V>
+    impl<'a, K, V> UpdateTables<'a, BTreeMap<K, V>, Option<V>> for Insert<K, V>
     where
         K: Ord + Clone,
         V: Clone,
     {
-        fn apply_first(&mut self, table: &mut BTreeMap<K, V>) -> Option<V> {
+        fn apply_first(&mut self, table: &'a mut BTreeMap<K, V>) -> Option<V> {
             table.insert(self.key.clone(), self.value.clone())
         }
-        fn apply_second(self: Box<Self>, table: &mut BTreeMap<K, V>) {
+        fn apply_second(self, table: &mut BTreeMap<K, V>) {
             // Move the value instead of cloning.
             table.insert(self.key, self.value);
         }
     }
 
     struct Clear {}
-    impl<K: Ord, V> UpdateTables<BTreeMap<K, V>, ()> for Clear {
-        fn apply_first(&mut self, table: &mut BTreeMap<K, V>) {
+    impl<'a, K, V> UpdateTables<'a, BTreeMap<K, V>, ()> for Clear
+    where
+        K: Ord,
+    {
+        fn apply_first(&mut self, table: &'a mut BTreeMap<K, V>) {
+            table.clear()
+        }
+        fn apply_second(self, table: &mut BTreeMap<K, V>) {
             table.clear()
         }
     }
@@ -103,43 +109,49 @@ pub mod btreemap {
     struct Remove<Q> {
         key_like: Q,
     }
-    impl<K, V, Q> UpdateTables<BTreeMap<K, V>, Option<V>> for Remove<Q>
+    impl<'a, K, V, Q> UpdateTables<'a, BTreeMap<K, V>, Option<V>> for Remove<Q>
     where
         Q: Ord,
         K: Ord + std::borrow::Borrow<Q>,
     {
-        fn apply_first(&mut self, table: &mut BTreeMap<K, V>) -> Option<V> {
+        fn apply_first(&mut self, table: &'a mut BTreeMap<K, V>) -> Option<V> {
             table.remove(&self.key_like)
+        }
+        fn apply_second(self, table: &mut BTreeMap<K, V>) {
+            table.remove(&self.key_like);
         }
     }
 
     struct RemoveEntry<Q> {
         key_like: Q,
     }
-    impl<K, V, Q> UpdateTables<BTreeMap<K, V>, Option<(K, V)>> for RemoveEntry<Q>
+    impl<'a, K, V, Q> UpdateTables<'a, BTreeMap<K, V>, Option<(K, V)>> for RemoveEntry<Q>
     where
         Q: Ord,
         K: Ord + std::borrow::Borrow<Q>,
     {
-        fn apply_first(&mut self, table: &mut BTreeMap<K, V>) -> Option<(K, V)> {
+        fn apply_first(&mut self, table: &'a mut BTreeMap<K, V>) -> Option<(K, V)> {
             table.remove_entry(&self.key_like)
+        }
+        fn apply_second(self, table: &mut BTreeMap<K, V>) {
+            table.remove_entry(&self.key_like);
         }
     }
 
     struct Append<K, V> {
         other: BTreeMap<K, V>,
     }
-    impl<K, V> UpdateTables<BTreeMap<K, V>, ()> for Append<K, V>
+    impl<'a, K, V> UpdateTables<'a, BTreeMap<K, V>, ()> for Append<K, V>
     where
         K: Ord + Clone,
         V: Clone,
     {
-        fn apply_first(&mut self, table: &mut BTreeMap<K, V>) {
+        fn apply_first(&mut self, table: &'a mut BTreeMap<K, V>) {
             for (k, v) in self.other.iter() {
                 table.insert(k.clone(), v.clone());
             }
         }
-        fn apply_second(mut self: Box<Self>, table: &mut BTreeMap<K, V>) {
+        fn apply_second(mut self, table: &mut BTreeMap<K, V>) {
             table.append(&mut self.other)
         }
     }

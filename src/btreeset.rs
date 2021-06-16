@@ -77,14 +77,14 @@ pub mod btreeset {
     struct Insert<T> {
         value: T,
     }
-    impl<T> UpdateTables<BTreeSet<T>, bool> for Insert<T>
+    impl<'a, T> UpdateTables<'a, BTreeSet<T>, bool> for Insert<T>
     where
         T: Ord + Clone,
     {
-        fn apply_first(&mut self, table: &mut BTreeSet<T>) -> bool {
+        fn apply_first(&mut self, table: &'a mut BTreeSet<T>) -> bool {
             table.insert(self.value.clone())
         }
-        fn apply_second(self: Box<Self>, table: &mut BTreeSet<T>) {
+        fn apply_second(self, table: &mut BTreeSet<T>) {
             // Move the value instead of cloning.
             table.insert(self.value);
         }
@@ -93,69 +93,78 @@ pub mod btreeset {
     struct Replace<T> {
         value: T,
     }
-    impl<T> UpdateTables<BTreeSet<T>, Option<T>> for Replace<T>
+    impl<'a, T> UpdateTables<'a, BTreeSet<T>, Option<T>> for Replace<T>
     where
         T: Ord + Clone,
     {
-        fn apply_first(&mut self, table: &mut BTreeSet<T>) -> Option<T> {
+        fn apply_first(&mut self, table: &'a mut BTreeSet<T>) -> Option<T> {
             table.replace(self.value.clone())
         }
-        fn apply_second(self: Box<Self>, table: &mut BTreeSet<T>) {
+        fn apply_second(self, table: &mut BTreeSet<T>) {
             // Move the value instead of cloning.
             table.replace(self.value);
         }
     }
 
     struct Clear {}
-    impl<T> UpdateTables<BTreeSet<T>, ()> for Clear
+    impl<'a, T> UpdateTables<'a, BTreeSet<T>, ()> for Clear
     where
         T: Ord + Clone,
     {
-        fn apply_first(&mut self, table: &mut BTreeSet<T>) {
+        fn apply_first(&mut self, table: &'a mut BTreeSet<T>) {
             table.clear()
+        }
+        fn apply_second(mut self, table: &mut BTreeSet<T>) {
+            self.apply_first(table);
         }
     }
 
     struct Remove<Q> {
         value_like: Q,
     }
-    impl<T, Q> UpdateTables<BTreeSet<T>, bool> for Remove<Q>
+    impl<'a, T, Q> UpdateTables<'a, BTreeSet<T>, bool> for Remove<Q>
     where
         Q: Ord,
         T: Ord + std::borrow::Borrow<Q>,
     {
-        fn apply_first(&mut self, table: &mut BTreeSet<T>) -> bool {
+        fn apply_first(&mut self, table: &'a mut BTreeSet<T>) -> bool {
             table.remove(&self.value_like)
+        }
+        fn apply_second(mut self, table: &mut BTreeSet<T>) {
+            self.apply_first(table);
         }
     }
 
     struct Take<Q> {
         value_like: Q,
     }
-    impl<T, Q> UpdateTables<BTreeSet<T>, Option<T>> for Take<Q>
+    impl<'a, T, Q> UpdateTables<'a, BTreeSet<T>, Option<T>> for Take<Q>
     where
         Q: Ord,
         T: Ord + std::borrow::Borrow<Q>,
     {
-        fn apply_first(&mut self, table: &mut BTreeSet<T>) -> Option<T> {
+        fn apply_first(&mut self, table: &'a mut BTreeSet<T>) -> Option<T> {
             table.take(&self.value_like)
+        }
+        fn apply_second(mut self, table: &mut BTreeSet<T>) {
+            self.apply_first(table);
         }
     }
 
     struct Append<T> {
         other: BTreeSet<T>,
     }
-    impl<T> UpdateTables<BTreeSet<T>, ()> for Append<T>
+    impl<'a, T> UpdateTables<'a, BTreeSet<T>, ()> for Append<T>
     where
         T: Ord + Clone,
     {
-        fn apply_first(&mut self, table: &mut BTreeSet<T>) {
+        fn apply_first(&mut self, table: &'a mut BTreeSet<T>) {
             for k in self.other.iter() {
                 table.insert(k.clone());
             }
         }
-        fn apply_second(mut self: Box<Self>, table: &mut BTreeSet<T>) {
-            table.append(&mut self.other)
+        fn apply_second(mut self, table: &mut BTreeSet<T>) {
+            table.append(&mut self.other);
         }
     }
 
