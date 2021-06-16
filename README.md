@@ -13,15 +13,14 @@ writers is:
    This is needed to allow there to always be a table that Readers can check out
    without contention.
 2. Writer thread CPU usage - The writer must apply all updates twice, once to
-   each table. Lock contention for the writer should be less than with a plain
-   RwLock due to Readers using the active_table.
+   each table.
 
 The usage is meant to be similar to a RwLock. Instead of multiple threads
 holding an RwLock though and calling read/write, there is a single Writer that
 acquires a write guard to the tables, and N Readers which can acquire read
-guards to the tables. Some of the inspiration came from the left_right crate, so
-feel free to check that out. We don't implement aliasing, so each table is a
-true deepcopy of the other. We also don't optimize for startup.
+guards to the tables. Some of the inspiration came from the
+[left_right](https://crates.io/crates/left-right) crate, so feel free to check
+that out.
 
 Creation is done through the Writer, which can then spawn Readers (Readers
 are clonable).

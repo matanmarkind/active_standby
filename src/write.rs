@@ -50,7 +50,7 @@ use std::fmt;
 ///
 /// Therefore it is also highly recommended not to include types that allow for
 /// interior mutability, since that can lead to the caller returning a reference
-/// to part of an underlying table. If the reader then mutates this outside of
+/// to part of an underlying table. If the caller then mutates this outside of
 /// UpdateTables, this is can cause divergence between the tables since
 /// apply_second isn't aware of this mutation.
 ///
