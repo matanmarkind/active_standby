@@ -20,15 +20,21 @@ use active_standby::primitives::*;
 use more_asserts::*;
 
 struct AddOne {}
-impl UpdateTables<i32, ()> for AddOne {
-    fn apply_first(&mut self, table: &mut i32) {
+impl<'a> UpdateTables<'a, i32, ()> for AddOne {
+    fn apply_first(&mut self, table: &'a mut i32) {
         *table = *table + 1;
+    }
+    fn apply_second(mut self, table: &mut i32) {
+        self.apply_first(table);
     }
 }
 struct SetZero {}
-impl UpdateTables<i32, ()> for SetZero {
+impl<'a> UpdateTables<'a, i32, ()> for SetZero {
     fn apply_first(&mut self, table: &mut i32) {
         *table = 0;
+    }
+    fn apply_second(mut self, table: &mut i32) {
+        self.apply_first(table);
     }
 }
 

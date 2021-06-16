@@ -7,18 +7,25 @@ mod loom_tests {
     use active_standby::primitives::*;
     use loom::thread;
 
-    struct AddOne {}
-    impl UpdateTables<i32, ()> for AddOne {
-        fn apply_first(&mut self, table: &mut i32) {
-            *table = *table + 1;
-        }
+struct AddOne {}
+impl<'a> UpdateTables<'a, i32, ()> for AddOne {
+    fn apply_first(&mut self, table: &'a mut i32) {
+        *table = *table + 1;
     }
-    struct SetZero {}
-    impl UpdateTables<i32, ()> for SetZero {
-        fn apply_first(&mut self, table: &mut i32) {
-            *table = 0;
-        }
+    fn apply_second(mut self, table: &mut i32) {
+        self.apply_first(table);
     }
+}
+struct SetZero {}
+impl<'a> UpdateTables<'a, i32, ()> for SetZero {
+    fn apply_first(&mut self, table: &mut i32) {
+        *table = 0;
+    }
+    fn apply_second(mut self, table: &mut i32) {
+        self.apply_first(table);
+    }
+}
+
 
     #[test]
     fn single_thread() {
