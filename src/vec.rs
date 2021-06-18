@@ -35,7 +35,7 @@ pub mod vec {
     }
 
     pub struct Writer<T> {
-        writer: primitives::SendWriter<Vec<T>>,
+        writer: primitives::SyncWriter<Vec<T>>,
     }
 
     impl<T> Writer<T>
@@ -44,13 +44,13 @@ pub mod vec {
     {
         pub fn new() -> Writer<T> {
             Writer {
-                writer: primitives::SendWriter::new(vec![]),
+                writer: primitives::SyncWriter::new(vec![]),
             }
         }
     }
 
     impl<T> Writer<T> {
-        pub fn write(&mut self) -> WriteGuard<'_, T> {
+        pub fn write(&self) -> WriteGuard<'_, T> {
             WriteGuard {
                 guard: self.writer.write(),
             }
@@ -63,13 +63,43 @@ pub mod vec {
     }
 
     pub struct WriteGuard<'w, T> {
-        guard: primitives::SendWriteGuard<'w, Vec<T>>,
+        guard: primitives::SyncWriteGuard<'w, Vec<T>>,
     }
 
     impl<'w, T> std::ops::Deref for WriteGuard<'w, T> {
         type Target = Vec<T>;
         fn deref(&self) -> &Self::Target {
             &*self.guard
+        }
+    }
+
+    pub struct AsLockHandle<T> {
+        writer: std::sync::Arc<Writer<T>>,
+        reader: Reader<T>,
+    }
+    impl<T> AsLockHandle<T>
+    where
+        T: Clone,
+    {
+        pub fn new() -> AsLockHandle<T> {
+            let writer = std::sync::Arc::new(Writer::new());
+            let reader = writer.new_reader();
+            AsLockHandle { writer, reader }
+        }
+
+        pub fn write(&mut self) -> WriteGuard<'_, T> {
+            self.writer.write()
+        }
+
+        pub fn read(&mut self) -> ReadGuard<'_, T> {
+            self.reader.read()
+        }
+    }
+    impl<T> Clone for AsLockHandle<T> {
+        fn clone(&self) -> AsLockHandle<T> {
+            let writer = std::sync::Arc::clone(&self.writer);
+            let reader = writer.new_reader();
+            AsLockHandle { writer, reader }
         }
     }
 
@@ -299,21 +329,21 @@ mod test {
 
     #[test]
     fn push() {
-        let mut writer = Writer::<i32>::new();
-        let mut reader = writer.new_reader();
-        assert_eq!(reader.read().len(), 0);
+        let mut lock1 = AsLockHandle::<i32>::new();
+        let mut lock2 = lock1.clone();
+        assert_eq!(lock1.read().len(), 0);
 
         {
-            let mut wg = writer.write();
+            let mut wg = lock1.write();
             wg.push(2);
             assert_eq!(wg.len(), 1);
-            assert_eq!(reader.read().len(), 0);
+            assert_eq!(lock2.read().len(), 0);
         }
 
         // When the write guard is dropped it publishes the changes to the readers.
-        assert_eq!(*reader.read(), vec![2]);
-        assert_eq!(*writer.write(), vec![2]);
-        assert_eq!(*reader.read(), vec![2]);
+        assert_eq!(*lock1.read(), vec![2]);
+        assert_eq!(*lock1.write(), vec![2]);
+        assert_eq!(*lock1.read(), vec![2]);
     }
 
     #[test]

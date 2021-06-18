@@ -1,7 +1,7 @@
 #[cfg(loom)]
 pub(crate) use loom::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 #[cfg(loom)]
-pub(crate) use loom::sync::{Arc, Mutex};
+pub(crate) use loom::sync::{Arc, Mutex, MutexGuard};
 #[cfg(loom)]
 pub(crate) use loom::thread::yield_now;
 #[cfg(loom)]
@@ -21,6 +21,6 @@ pub(crate) fn fence(ord: Ordering) {
 #[cfg(not(loom))]
 pub(crate) use std::sync::atomic::{fence, AtomicPtr, AtomicUsize, Ordering};
 #[cfg(not(loom))]
-pub(crate) use std::sync::{Arc, Mutex};
+pub(crate) use std::sync::{Arc, Mutex, MutexGuard};
 #[cfg(not(loom))]
 pub(crate) use std::thread::yield_now;

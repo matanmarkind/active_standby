@@ -2,6 +2,7 @@ use crate::read::{Reader, ReaderEpochs};
 use crate::table::{Table, TableWriteGuard};
 use crate::types::*;
 use slab::Slab;
+use std::cell::UnsafeCell;
 use std::fmt;
 
 /// Operations that update the data held internally. Users mutate the tables by
@@ -410,6 +411,97 @@ impl<'w, T> std::ops::Deref for SendWriteGuard<'w, T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         &*self.guard
+    }
+}
+
+#[derive(Debug)]
+pub struct SyncWriter<T> {
+    // Used to lock 'write'. We can't use Mutex<Writer> because then locking
+    // would return MutegGuard<Writer>. Then if we try to crete a WriteGuard,
+    // this would create a struct that refers to itself. Instead we use the C++
+    // style unique_lock, to guard 'writer'.
+    mtx: Mutex<()>,
+
+    // UnsafeCell is used for interior mutability.
+    writer: UnsafeCell<Writer<T>>,
+}
+
+impl<T> SyncWriter<T>
+where
+    T: Clone,
+{
+    pub fn new(t: T) -> SyncWriter<T> {
+        SyncWriter {
+            mtx: Mutex::new(()),
+            writer: UnsafeCell::new(Writer::new(t)),
+        }
+    }
+}
+
+impl<T> SyncWriter<T>
+where
+    T: Default + Clone,
+{
+    pub fn default() -> SyncWriter<T> {
+        Self::new(T::default())
+    }
+}
+
+impl<T> SyncWriter<T> {
+    pub fn write(&self) -> SyncWriteGuard<'_, T> {
+        let writer = unsafe { &mut *self.writer.get() };
+        SyncWriteGuard {
+            mtx_guard: Some(self.mtx.lock().unwrap()),
+            write_guard: Some(UnsafeCell::new(writer.write())),
+        }
+    }
+    pub fn new_reader(&self) -> Reader<T> {
+        let _mtx_guard = self.mtx.lock().unwrap();
+        let writer = unsafe { &*self.writer.get() };
+        writer.new_reader()
+    }
+}
+
+/// Writer is made of 2 components.
+/// - Arc<Tables> which is Send + Sync if T is Send.
+/// - Vec<Updates> which is Send if the updates are.
+///
+/// We enforce that all updates passed to a SendWriteGuard are Send, so
+/// therefore SyncWriter is Send if T is.
+unsafe impl<T> Send for SyncWriter<T> where T: Send {}
+/// We enforce Sync by making sure that the WriteGuard only exists whent he
+/// MutexGuard exists.
+unsafe impl<T> Sync for SyncWriter<T> where T: Send {}
+
+/// Guard for a SyncWriter, not a WriteGuard that is Sync.
+///
+/// Same as a WriteGuard, but update_tables requires that updates are Send.
+pub struct SyncWriteGuard<'w, T> {
+    mtx_guard: Option<MutexGuard<'w, ()>>,
+    write_guard: Option<UnsafeCell<WriteGuard<'w, T>>>,
+}
+
+impl<'w, T> SyncWriteGuard<'w, T> {
+    pub fn update_tables<'a, R>(
+        &'a mut self,
+        update: impl UpdateTables<'a, T, R> + 'static + Sized + Send,
+    ) -> R {
+        unsafe { &mut *self.write_guard.as_ref().unwrap().get() }.update_tables(update)
+    }
+}
+
+impl<'w, T> std::ops::Deref for SyncWriteGuard<'w, T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*&*self.write_guard.as_ref().unwrap().get() }
+    }
+}
+
+impl<'w, T> Drop for SyncWriteGuard<'w, T> {
+    fn drop(&mut self) {
+        // Make sure to destroy the write guard before the mutex.
+        self.write_guard = None;
+        self.mtx_guard = None;
     }
 }
 

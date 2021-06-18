@@ -18,3 +18,9 @@ maplit = "1.0.2"
 
 [target.'cfg(loom)'.dependencies]
 loom = "0.5.0"
+
+# Next: Create AsLock, which is like RwLock and contains both Writer and Reader.
+# Unimplement Send, and require users explicitly call 'make_send' which consumes
+# self. And convert back with 'make_useful'. This will prevent users from
+# sharing it between threads via Arc<AsLock>. Also it is templates on the Writer
+# type (and Reader until we can derive reader type from Writer::new_reader).
