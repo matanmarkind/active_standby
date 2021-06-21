@@ -48,9 +48,13 @@ impl<T> Table<T> {
     where
         T: Clone,
     {
+        Table::from_identical(t.clone(), t)
+    }
+
+    pub fn from_identical(t1: T, t2: T) -> Table<T> {
         Table {
-            active_table: AtomicPtr::new(Box::into_raw(Box::new(t.clone()))),
-            standby_table: AtomicPtr::new(Box::into_raw(Box::new(t))),
+            active_table: AtomicPtr::new(Box::into_raw(Box::new(t1))),
+            standby_table: AtomicPtr::new(Box::into_raw(Box::new(t2))),
         }
     }
 

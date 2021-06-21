@@ -43,6 +43,8 @@
 //!
 //! For examples, check out the tests from the collections.
 
+mod macros;
+
 mod read;
 mod table;
 mod types;

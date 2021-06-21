@@ -7,101 +7,10 @@
 /// ever returning a mutable reference which the reader will use to change the
 /// table without recording it.
 pub mod vec {
-    use crate::primitives;
     use crate::primitives::UpdateTables;
     use std::ops::RangeBounds;
 
-    pub struct Reader<T> {
-        reader: primitives::Reader<Vec<T>>,
-    }
-
-    impl<T> Reader<T> {
-        pub fn read(&mut self) -> ReadGuard<'_, T> {
-            ReadGuard {
-                guard: self.reader.read(),
-            }
-        }
-    }
-
-    pub struct ReadGuard<'r, T> {
-        guard: primitives::ReadGuard<'r, Vec<T>>,
-    }
-
-    impl<'w, T> std::ops::Deref for ReadGuard<'w, T> {
-        type Target = Vec<T>;
-        fn deref(&self) -> &Self::Target {
-            &*self.guard
-        }
-    }
-
-    pub struct Writer<T> {
-        writer: primitives::SyncWriter<Vec<T>>,
-    }
-
-    impl<T> Writer<T>
-    where
-        T: Clone,
-    {
-        pub fn new() -> Writer<T> {
-            Writer {
-                writer: primitives::SyncWriter::new(vec![]),
-            }
-        }
-    }
-
-    impl<T> Writer<T> {
-        pub fn write(&self) -> WriteGuard<'_, T> {
-            WriteGuard {
-                guard: self.writer.write(),
-            }
-        }
-        pub fn new_reader(&self) -> Reader<T> {
-            Reader {
-                reader: self.writer.new_reader(),
-            }
-        }
-    }
-
-    pub struct WriteGuard<'w, T> {
-        guard: primitives::SyncWriteGuard<'w, Vec<T>>,
-    }
-
-    impl<'w, T> std::ops::Deref for WriteGuard<'w, T> {
-        type Target = Vec<T>;
-        fn deref(&self) -> &Self::Target {
-            &*self.guard
-        }
-    }
-
-    pub struct AsLockHandle<T> {
-        writer: std::sync::Arc<Writer<T>>,
-        reader: Reader<T>,
-    }
-    impl<T> AsLockHandle<T>
-    where
-        T: Clone,
-    {
-        pub fn new() -> AsLockHandle<T> {
-            let writer = std::sync::Arc::new(Writer::new());
-            let reader = writer.new_reader();
-            AsLockHandle { writer, reader }
-        }
-
-        pub fn write(&mut self) -> WriteGuard<'_, T> {
-            self.writer.write()
-        }
-
-        pub fn read(&mut self) -> ReadGuard<'_, T> {
-            self.reader.read()
-        }
-    }
-    impl<T> Clone for AsLockHandle<T> {
-        fn clone(&self) -> AsLockHandle<T> {
-            let writer = std::sync::Arc::clone(&self.writer);
-            let reader = writer.new_reader();
-            AsLockHandle { writer, reader }
-        }
-    }
+    crate::generate_aslock_handle!(Vec<T>);
 
     struct Push<T> {
         value: T,
@@ -329,7 +238,7 @@ mod test {
 
     #[test]
     fn push() {
-        let mut lock1 = AsLockHandle::<i32>::new();
+        let mut lock1 = AsLockHandle::<i32>::default();
         let mut lock2 = lock1.clone();
         assert_eq!(lock1.read().len(), 0);
 
@@ -348,35 +257,33 @@ mod test {
 
     #[test]
     fn clear() {
-        let mut writer = Writer::<i32>::new();
-        let mut reader = writer.new_reader();
-        assert_eq!(reader.read().len(), 0);
+        let mut aslock = AsLockHandle::<i32>::default();
+        assert_eq!(aslock.read().len(), 0);
 
         {
-            let mut wg = writer.write();
+            let mut aslock2 = aslock.clone();
+            let mut wg = aslock.write();
             wg.push(2);
             assert_eq!(wg.len(), 1);
-            assert_eq!(reader.read().len(), 0);
+            assert_eq!(aslock2.read().len(), 0);
         }
 
         // When the write guard is dropped it publishes the changes to the readers.
-        assert_eq!(*reader.read(), vec![2]);
-        assert_eq!(*writer.write(), vec![2]);
-        assert_eq!(*reader.read(), vec![2]);
+        assert_eq!(*aslock.read(), vec![2]);
+        assert_eq!(*aslock.write(), vec![2]);
+        assert_eq!(*aslock.read(), vec![2]);
 
-        writer.write().clear();
-        assert_eq!(*reader.read(), vec![]);
-        assert_eq!(*writer.write(), vec![]);
-        assert_eq!(*reader.read(), vec![]);
+        aslock.write().clear();
+        assert_eq!(*aslock.read(), vec![]);
+        assert_eq!(*aslock.write(), vec![]);
+        assert_eq!(*aslock.read(), vec![]);
     }
 
     #[test]
     fn pop() {
-        let mut writer = Writer::<i32>::new();
-        let mut reader = writer.new_reader();
-
+        let mut table = AsLockHandle::<i32>::default();
         {
-            let mut wg = writer.write();
+            let mut wg = table.write();
             wg.push(2);
             wg.push(3);
             wg.pop();
@@ -384,174 +291,165 @@ mod test {
         }
 
         // When the write guard is dropped it publishes the changes to the readers.
-        assert_eq!(*reader.read(), vec![2, 4]);
-        assert_eq!(*writer.write(), vec![2, 4]);
-        assert_eq!(*reader.read(), vec![2, 4]);
+        assert_eq!(*table.read(), vec![2, 4]);
+        assert_eq!(*table.write(), vec![2, 4]);
+        assert_eq!(*table.read(), vec![2, 4]);
     }
 
     #[test]
     fn indirect_type() {
-        let mut writer = Writer::<Box<i32>>::new();
-        let mut reader = writer.new_reader();
+        let mut table = AsLockHandle::<Box<i32>>::default();
 
         {
-            let mut wg = writer.write();
+            let mut wg = table.write();
             wg.push(Box::new(2));
         }
 
         // When the write guard is dropped it publishes the changes to the readers.
-        assert_eq!(*reader.read(), vec![Box::new(2)]);
-        assert_eq!(*writer.write(), vec![Box::new(2)]);
-        assert_eq!(*reader.read(), vec![Box::new(2)]);
+        assert_eq!(*table.read(), vec![Box::new(2)]);
+        assert_eq!(*table.write(), vec![Box::new(2)]);
+        assert_eq!(*table.read(), vec![Box::new(2)]);
     }
 
     #[test]
     fn reserve() {
-        let mut writer = Writer::<i32>::new();
-        let mut reader = writer.new_reader();
+        let mut table = AsLockHandle::<i32>::default();
 
         {
-            let mut wg = writer.write();
+            let mut wg = table.write();
             wg.reserve(123);
         }
 
-        assert!(reader.read().capacity() >= 123);
-        assert!(writer.write().capacity() >= 123);
-        assert!(reader.read().capacity() >= 123);
+        assert!(table.read().capacity() >= 123);
+        assert!(table.write().capacity() >= 123);
+        assert!(table.read().capacity() >= 123);
     }
 
     #[test]
     fn reserve_exact() {
-        let mut writer = Writer::<i32>::new();
-        let mut reader = writer.new_reader();
+        let mut table = AsLockHandle::<i32>::default();
 
         {
-            let mut wg = writer.write();
+            let mut wg = table.write();
             wg.reserve_exact(123);
         }
 
-        assert_eq!(reader.read().capacity(), 123);
-        assert_eq!(writer.write().capacity(), 123);
-        assert_eq!(reader.read().capacity(), 123);
+        assert_eq!(table.read().capacity(), 123);
+        assert_eq!(table.write().capacity(), 123);
+        assert_eq!(table.read().capacity(), 123);
     }
 
     #[test]
     fn shrink_to_fit() {
-        let mut writer = Writer::<i32>::new();
-        let mut reader = writer.new_reader();
+        let mut table = AsLockHandle::<i32>::default();
 
         {
-            let mut wg = writer.write();
+            let mut wg = table.write();
             wg.reserve_exact(123);
             wg.push(2);
             wg.push(3);
             wg.shrink_to_fit();
         }
 
-        assert_eq!(reader.read().capacity(), 2);
-        assert_eq!(writer.write().capacity(), 2);
-        assert_eq!(reader.read().capacity(), 2);
+        assert_eq!(table.read().capacity(), 2);
+        assert_eq!(table.write().capacity(), 2);
+        assert_eq!(table.read().capacity(), 2);
     }
 
     #[test]
     fn truncate() {
-        let mut writer = Writer::<i32>::new();
-        let mut reader = writer.new_reader();
+        let mut table = AsLockHandle::<i32>::default();
 
         {
-            let mut wg = writer.write();
+            let mut wg = table.write();
             for i in 0..10 {
                 wg.push(i);
             }
             wg.truncate(3);
         }
 
-        assert_eq!(*reader.read(), vec![0, 1, 2]);
-        assert_eq!(*writer.write(), vec![0, 1, 2]);
-        assert_eq!(*reader.read(), vec![0, 1, 2]);
+        assert_eq!(*table.read(), vec![0, 1, 2]);
+        assert_eq!(*table.write(), vec![0, 1, 2]);
+        assert_eq!(*table.read(), vec![0, 1, 2]);
     }
 
     #[test]
     fn swap_remove() {
-        let mut writer = Writer::<i32>::new();
-        let mut reader = writer.new_reader();
+        let mut table = AsLockHandle::<i32>::default();
 
         {
-            let mut wg = writer.write();
+            let mut wg = table.write();
             for i in 0..5 {
                 wg.push(i);
             }
             assert_eq!(wg.swap_remove(2), 2);
         }
 
-        assert_eq!(*reader.read(), vec![0, 1, 4, 3]);
-        assert_eq!(*writer.write(), vec![0, 1, 4, 3]);
-        assert_eq!(*reader.read(), vec![0, 1, 4, 3]);
+        assert_eq!(*table.read(), vec![0, 1, 4, 3]);
+        assert_eq!(*table.write(), vec![0, 1, 4, 3]);
+        assert_eq!(*table.read(), vec![0, 1, 4, 3]);
     }
 
     #[test]
     fn insert() {
-        let mut writer = Writer::<i32>::new();
-        let mut reader = writer.new_reader();
+        let mut table = AsLockHandle::<i32>::default();
+        let mut table2 = table.clone();
 
         {
-            let mut wg = writer.write();
+            let mut wg = table.write();
             for i in 0..5 {
                 wg.push(i);
             }
             wg.insert(2, 10);
             assert_eq!(*wg, vec![0, 1, 10, 2, 3, 4]);
-            assert_eq!(*reader.read(), vec![]);
+            assert_eq!(*table2.read(), vec![]);
         }
 
-        assert_eq!(*reader.read(), vec![0, 1, 10, 2, 3, 4]);
-        assert_eq!(*writer.write(), vec![0, 1, 10, 2, 3, 4]);
-        assert_eq!(*reader.read(), vec![0, 1, 10, 2, 3, 4]);
+        assert_eq!(*table.read(), vec![0, 1, 10, 2, 3, 4]);
+        assert_eq!(*table.write(), vec![0, 1, 10, 2, 3, 4]);
+        assert_eq!(*table.read(), vec![0, 1, 10, 2, 3, 4]);
     }
 
     #[test]
     fn retain() {
-        let mut writer = Writer::<i32>::new();
-        let mut reader = writer.new_reader();
+        let mut table = AsLockHandle::<i32>::default();
 
         {
-            let mut wg = writer.write();
+            let mut wg = table.write();
             for i in 0..5 {
                 wg.push(i);
             }
             wg.retain(|element| element % 2 == 0);
         }
 
-        assert_eq!(*reader.read(), vec![0, 2, 4]);
-        assert_eq!(*writer.write(), vec![0, 2, 4]);
-        assert_eq!(*reader.read(), vec![0, 2, 4]);
+        assert_eq!(*table.read(), vec![0, 2, 4]);
+        assert_eq!(*table.write(), vec![0, 2, 4]);
+        assert_eq!(*table.read(), vec![0, 2, 4]);
     }
 
     #[test]
     fn drain() {
-        let mut writer = Writer::<i32>::new();
-        let mut reader = writer.new_reader();
+        let mut table = AsLockHandle::<i32>::new(vec![]);
 
         {
-            let mut wg = writer.write();
+            let mut wg = table.write();
             for i in 0..5 {
                 wg.push(i + 1);
             }
             assert_eq!(wg.drain(1..4).collect::<Vec<_>>(), vec![2, 3, 4]);
         }
 
-        assert_eq!(*reader.read(), vec![1, 5]);
-        assert_eq!(*writer.write(), vec![1, 5]);
-        assert_eq!(*reader.read(), vec![1, 5]);
+        assert_eq!(*table.read(), vec![1, 5]);
+        assert_eq!(*table.write(), vec![1, 5]);
+        assert_eq!(*table.read(), vec![1, 5]);
     }
 
     #[test]
     fn lifetimes() {
-        let mut writer = Writer::<i32>::new();
-        let mut reader = writer.new_reader();
+        let mut table = AsLockHandle::<i32>::from_identical(vec![], vec![]);
 
         {
-            let mut wg = writer.write();
+            let mut wg = table.write();
             for i in 0..5 {
                 wg.push(i + 1);
             }
@@ -564,8 +462,8 @@ mod test {
             assert_eq!(swapped, 2);
         }
 
-        assert_eq!(*reader.read(), vec![1]);
-        assert_eq!(*writer.write(), vec![1]);
-        assert_eq!(*reader.read(), vec![1]);
+        assert_eq!(*table.read(), vec![1]);
+        assert_eq!(*table.write(), vec![1]);
+        assert_eq!(*table.read(), vec![1]);
     }
 }

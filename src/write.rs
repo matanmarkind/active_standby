@@ -168,29 +168,37 @@ where
     T: Clone,
 {
     pub fn new(t: T) -> Writer<T> {
-        Self::with_readers_capacity(t, 1024)
-    }
-
-    pub fn with_readers_capacity(t: T, readers_capacity: usize) -> Writer<T> {
-        Writer {
-            table: Arc::new(Table::new(t)),
-            readers: Arc::new(Mutex::new(Slab::with_capacity(readers_capacity))),
-            ops_to_replay: Vec::new(),
-            blocking_readers: std::collections::HashMap::new(),
-        }
+        Self::from_identical(t.clone(), t)
     }
 }
 
 impl<T> Writer<T>
 where
-    T: Default + Clone,
+    T: Default,
 {
     pub fn default() -> Writer<T> {
-        Self::new(T::default())
+        Self::from_identical(T::default(), T::default())
     }
 }
 
 impl<T> Writer<T> {
+    /// Create a Writer object for handling active_standby tables.
+    /// - t1 & t2 are the two tables which will become the active and standby
+    ///   tables. They must be identical; this is left to the user to enforce.
+    pub fn from_identical(t1: T, t2: T) -> Writer<T> {
+        Writer {
+            table: Arc::new(Table::from_identical(t1, t2)),
+            readers: Arc::new(Mutex::new(Slab::with_capacity(1024))),
+            ops_to_replay: Vec::new(),
+            blocking_readers: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Update the max number of readers that we expect to exist.
+    pub fn reserve_readers(&mut self, readers_capacity: usize) {
+        self.readers.lock().unwrap().reserve(readers_capacity)
+    }
+
     // Hangs until the standby table has no readers pointing to it, meaning it
     // is safe for updating.
     fn await_standby_table_free(&mut self) {
@@ -353,22 +361,25 @@ where
     T: Clone,
 {
     pub fn new(t: T) -> SendWriter<T> {
-        SendWriter {
-            writer: Writer::new(t),
-        }
+        Self::from_identical(t.clone(), t)
     }
 }
 
 impl<T> SendWriter<T>
 where
-    T: Default + Clone,
+    T: Default,
 {
     pub fn default() -> SendWriter<T> {
-        Self::new(T::default())
+        Self::from_identical(T::default(), T::default())
     }
 }
 
 impl<T> SendWriter<T> {
+    pub fn from_identical(t1: T, t2: T) -> SendWriter<T> {
+        SendWriter {
+            writer: Writer::from_identical(t1, t2),
+        }
+    }
     pub fn write(&mut self) -> SendWriteGuard<'_, T> {
         SendWriteGuard {
             guard: self.writer.write(),
@@ -423,7 +434,7 @@ pub struct SyncWriter<T> {
     mtx: Mutex<()>,
 
     // UnsafeCell is used for interior mutability.
-    writer: UnsafeCell<Writer<T>>,
+    writer: UnsafeCell<SendWriter<T>>,
 }
 
 impl<T> SyncWriter<T>
@@ -431,30 +442,35 @@ where
     T: Clone,
 {
     pub fn new(t: T) -> SyncWriter<T> {
-        SyncWriter {
-            mtx: Mutex::new(()),
-            writer: UnsafeCell::new(Writer::new(t)),
-        }
+        Self::from_identical(t.clone(), t)
     }
 }
 
 impl<T> SyncWriter<T>
 where
-    T: Default + Clone,
+    T: Default,
 {
     pub fn default() -> SyncWriter<T> {
-        Self::new(T::default())
+        Self::from_identical(T::default(), T::default())
     }
 }
 
 impl<T> SyncWriter<T> {
+    pub fn from_identical(t1: T, t2: T) -> SyncWriter<T> {
+        SyncWriter {
+            mtx: Mutex::new(()),
+            writer: UnsafeCell::new(SendWriter::from_identical(t1, t2)),
+        }
+    }
+
     pub fn write(&self) -> SyncWriteGuard<'_, T> {
         let writer = unsafe { &mut *self.writer.get() };
         SyncWriteGuard {
-            mtx_guard: Some(self.mtx.lock().unwrap()),
+            _mtx_guard: Some(self.mtx.lock().unwrap()),
             write_guard: Some(UnsafeCell::new(writer.write())),
         }
     }
+
     pub fn new_reader(&self) -> Reader<T> {
         let _mtx_guard = self.mtx.lock().unwrap();
         let writer = unsafe { &*self.writer.get() };
@@ -462,23 +478,23 @@ impl<T> SyncWriter<T> {
     }
 }
 
-/// Writer is made of 2 components.
-/// - Arc<Tables> which is Send + Sync if T is Send.
-/// - Vec<Updates> which is Send if the updates are.
-///
-/// We enforce that all updates passed to a SendWriteGuard are Send, so
-/// therefore SyncWriter is Send if T is.
-unsafe impl<T> Send for SyncWriter<T> where T: Send {}
 /// We enforce Sync by making sure that the WriteGuard only exists whent he
 /// MutexGuard exists.
-unsafe impl<T> Sync for SyncWriter<T> where T: Send {}
+unsafe impl<T> Sync for SyncWriter<T> where SyncWriter<T>: Send {}
 
 /// Guard for a SyncWriter, not a WriteGuard that is Sync.
 ///
 /// Same as a WriteGuard, but update_tables requires that updates are Send.
 pub struct SyncWriteGuard<'w, T> {
-    mtx_guard: Option<MutexGuard<'w, ()>>,
-    write_guard: Option<UnsafeCell<WriteGuard<'w, T>>>,
+    _mtx_guard: Option<MutexGuard<'w, ()>>,
+    write_guard: Option<UnsafeCell<SendWriteGuard<'w, T>>>,
+}
+
+impl<'w, T> std::ops::Deref for SyncWriteGuard<'w, T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*&*self.write_guard.as_ref().unwrap().get() }
+    }
 }
 
 impl<'w, T> SyncWriteGuard<'w, T> {
@@ -490,18 +506,11 @@ impl<'w, T> SyncWriteGuard<'w, T> {
     }
 }
 
-impl<'w, T> std::ops::Deref for SyncWriteGuard<'w, T> {
-    type Target = T;
-    fn deref(&self) -> &Self::Target {
-        unsafe { &*&*self.write_guard.as_ref().unwrap().get() }
-    }
-}
-
 impl<'w, T> Drop for SyncWriteGuard<'w, T> {
     fn drop(&mut self) {
         // Make sure to destroy the write guard before the mutex.
         self.write_guard = None;
-        self.mtx_guard = None;
+        self._mtx_guard = None;
     }
 }
 
