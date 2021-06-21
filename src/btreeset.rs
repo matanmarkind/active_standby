@@ -8,71 +8,10 @@
 /// the table without recording it.
 
 pub mod btreeset {
-    use crate::primitives;
     use crate::primitives::UpdateTables;
     use std::collections::BTreeSet;
 
-    pub struct Reader<T> {
-        reader: primitives::Reader<BTreeSet<T>>,
-    }
-
-    impl<T> Reader<T> {
-        pub fn read(&mut self) -> ReadGuard<'_, T> {
-            ReadGuard {
-                guard: self.reader.read(),
-            }
-        }
-    }
-
-    pub struct ReadGuard<'r, T> {
-        guard: primitives::ReadGuard<'r, BTreeSet<T>>,
-    }
-
-    impl<'r, T> std::ops::Deref for ReadGuard<'r, T> {
-        type Target = BTreeSet<T>;
-        fn deref(&self) -> &Self::Target {
-            &*self.guard
-        }
-    }
-
-    pub struct Writer<T> {
-        writer: primitives::SendWriter<BTreeSet<T>>,
-    }
-
-    impl<T> Writer<T>
-    where
-        T: Clone + Ord,
-    {
-        pub fn new() -> Writer<T> {
-            Writer {
-                writer: primitives::SendWriter::new(BTreeSet::new()),
-            }
-        }
-    }
-
-    impl<T> Writer<T> {
-        pub fn write(&mut self) -> WriteGuard<'_, T> {
-            WriteGuard {
-                guard: self.writer.write(),
-            }
-        }
-        pub fn new_reader(&self) -> Reader<T> {
-            Reader {
-                reader: self.writer.new_reader(),
-            }
-        }
-    }
-
-    pub struct WriteGuard<'w, T> {
-        guard: primitives::SendWriteGuard<'w, BTreeSet<T>>,
-    }
-
-    impl<'w, T> std::ops::Deref for WriteGuard<'w, T> {
-        type Target = BTreeSet<T>;
-        fn deref(&self) -> &Self::Target {
-            &*self.guard
-        }
-    }
+    crate::generate_aslock_handle!(BTreeSet<T>);
 
     struct Insert<T> {
         value: T,
@@ -218,34 +157,32 @@ mod test {
             "world",
         };
 
-        let mut writer = Writer::<&str>::new();
-        let mut reader = writer.new_reader();
+        let mut table = AsLockHandle::<&str>::default();
         {
-            let mut wg = writer.write();
+            let mut wg = table.write();
             wg.insert("hello");
             wg.insert("world");
             assert_eq!(*wg, expected);
         }
 
-        assert_eq!(*reader.read(), expected);
-        assert_eq!(*writer.write(), expected);
-        assert_eq!(*reader.read(), expected);
+        assert_eq!(*table.read(), expected);
+        assert_eq!(*table.write(), expected);
+        assert_eq!(*table.read(), expected);
     }
 
     #[test]
     fn clear() {
-        let mut writer = Writer::<&str>::new();
-        let mut reader = writer.new_reader();
+        let mut table = AsLockHandle::<&str>::default();
         {
-            let mut wg = writer.write();
+            let mut wg = table.write();
             wg.insert("hello");
             wg.insert("world");
             wg.clear();
         }
 
-        assert!(reader.read().is_empty());
-        assert!((*writer.write()).is_empty());
-        assert!(reader.read().is_empty());
+        assert!(table.read().is_empty());
+        assert!(table.write().is_empty());
+        assert!(table.read().is_empty());
     }
 
     #[test]
@@ -253,10 +190,9 @@ mod test {
         let expected = btreeset! {
             "hello",
         };
-        let mut writer = Writer::<&str>::new();
-        let mut reader = writer.new_reader();
+        let mut table = AsLockHandle::<&str>::default();
         {
-            let mut wg = writer.write();
+            let mut wg = table.write();
             wg.insert("hello");
             wg.insert("world");
             wg.insert("I");
@@ -266,9 +202,9 @@ mod test {
             assert_eq!(*wg, expected);
         }
 
-        assert_eq!(*reader.read(), expected);
-        assert_eq!(*writer.write(), expected);
-        assert_eq!(*reader.read(), expected);
+        assert_eq!(*table.read(), expected);
+        assert_eq!(*table.write(), expected);
+        assert_eq!(*table.read(), expected);
     }
 
     #[test]
@@ -280,8 +216,7 @@ mod test {
             "joe",
         };
 
-        let mut writer = Writer::<&str>::new();
-        let mut reader = writer.new_reader();
+        let mut table = AsLockHandle::<&str>::default();
         {
             let map1 = btreeset! {
                 "hello",
@@ -291,14 +226,14 @@ mod test {
                 "name's" ,
                 "joe" ,
             };
-            let mut wg = writer.write();
+            let mut wg = table.write();
             wg.append(map1);
             wg.append(map2);
             assert_eq!(*wg, expected);
         }
 
-        assert_eq!(*reader.read(), expected);
-        assert_eq!(*writer.write(), expected);
-        assert_eq!(*reader.read(), expected);
+        assert_eq!(*table.read(), expected);
+        assert_eq!(*table.write(), expected);
+        assert_eq!(*table.read(), expected);
     }
 }

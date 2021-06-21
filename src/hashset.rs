@@ -8,72 +8,11 @@
 /// the table without recording it.
 
 pub mod hashset {
-    use crate::primitives;
     use crate::primitives::UpdateTables;
     use std::collections::HashSet;
     use std::hash::Hash;
 
-    pub struct Reader<T> {
-        reader: primitives::Reader<HashSet<T>>,
-    }
-
-    impl<T> Reader<T> {
-        pub fn read(&mut self) -> ReadGuard<'_, T> {
-            ReadGuard {
-                guard: self.reader.read(),
-            }
-        }
-    }
-
-    pub struct ReadGuard<'r, T> {
-        guard: primitives::ReadGuard<'r, HashSet<T>>,
-    }
-
-    impl<'r, T> std::ops::Deref for ReadGuard<'r, T> {
-        type Target = HashSet<T>;
-        fn deref(&self) -> &Self::Target {
-            &*self.guard
-        }
-    }
-
-    pub struct Writer<T> {
-        writer: primitives::SendWriter<HashSet<T>>,
-    }
-
-    impl<T> Writer<T>
-    where
-        T: Clone,
-    {
-        pub fn new() -> Writer<T> {
-            Writer {
-                writer: primitives::SendWriter::new(HashSet::new()),
-            }
-        }
-    }
-
-    impl<T> Writer<T> {
-        pub fn write(&mut self) -> WriteGuard<'_, T> {
-            WriteGuard {
-                guard: self.writer.write(),
-            }
-        }
-        pub fn new_reader(&self) -> Reader<T> {
-            Reader {
-                reader: self.writer.new_reader(),
-            }
-        }
-    }
-
-    pub struct WriteGuard<'w, T> {
-        guard: primitives::SendWriteGuard<'w, HashSet<T>>,
-    }
-
-    impl<'w, T> std::ops::Deref for WriteGuard<'w, T> {
-        type Target = HashSet<T>;
-        fn deref(&self) -> &Self::Target {
-            &*self.guard
-        }
-    }
+    crate::generate_aslock_handle!(HashSet<T>);
 
     struct Insert<T> {
         value: T,
@@ -177,42 +116,6 @@ pub mod hashset {
         }
     }
 
-    struct Drain {}
-    impl<'a, T> UpdateTables<'a, HashSet<T>, std::collections::hash_set::Drain<'a, T>> for Drain
-    where
-        T: Eq + Hash,
-    {
-        fn apply_first(
-            &mut self,
-            table: &'a mut HashSet<T>,
-        ) -> std::collections::hash_set::Drain<'a, T> {
-            table.drain()
-        }
-        fn apply_second(mut self, table: &mut HashSet<T>) {
-            self.apply_first(table);
-        }
-    }
-
-    struct Retain<T, F>
-    where
-        F: 'static + Clone + FnMut(&T) -> bool,
-    {
-        f: F,
-        _compile_k_v: std::marker::PhantomData<T>,
-    }
-    impl<'a, T, F> UpdateTables<'a, HashSet<T>, ()> for Retain<T, F>
-    where
-        T: Eq + Hash,
-        F: 'static + Clone + FnMut(&T) -> bool,
-    {
-        fn apply_first(&mut self, table: &'a mut HashSet<T>) {
-            table.retain(self.f.clone())
-        }
-        fn apply_second(self, table: &mut HashSet<T>) {
-            table.retain(self.f)
-        }
-    }
-
     impl<'w, 'a, T> WriteGuard<'w, T>
     where
         T: 'static + Eq + Hash + Clone + Send,
@@ -254,6 +157,23 @@ pub mod hashset {
         }
 
         pub fn drain(&'a mut self) -> std::collections::hash_set::Drain<'a, T> {
+            struct Drain {}
+
+            impl<'a, T> UpdateTables<'a, HashSet<T>, std::collections::hash_set::Drain<'a, T>> for Drain
+            where
+                T: Eq + Hash,
+            {
+                fn apply_first(
+                    &mut self,
+                    table: &'a mut HashSet<T>,
+                ) -> std::collections::hash_set::Drain<'a, T> {
+                    table.drain()
+                }
+                fn apply_second(mut self, table: &mut HashSet<T>) {
+                    self.apply_first(table);
+                }
+            }
+
             self.guard.update_tables(Drain {})
         }
 
@@ -261,6 +181,27 @@ pub mod hashset {
         where
             F: 'static + Send + Clone + FnMut(&T) -> bool,
         {
+            struct Retain<T, F>
+            where
+                F: 'static + Clone + FnMut(&T) -> bool,
+            {
+                f: F,
+                _compile_k_v: std::marker::PhantomData<T>,
+            }
+
+            impl<'a, T, F> UpdateTables<'a, HashSet<T>, ()> for Retain<T, F>
+            where
+                T: Eq + Hash,
+                F: 'static + Clone + FnMut(&T) -> bool,
+            {
+                fn apply_first(&mut self, table: &'a mut HashSet<T>) {
+                    table.retain(self.f.clone())
+                }
+                fn apply_second(self, table: &mut HashSet<T>) {
+                    table.retain(self.f)
+                }
+            }
+
             self.guard.update_tables(Retain {
                 f,
                 _compile_k_v: std::marker::PhantomData,
@@ -282,35 +223,33 @@ mod test {
             "world",
         };
 
-        let mut writer = Writer::<&str>::new();
-        let mut reader = writer.new_reader();
+        let mut table = AsLockHandle::<&str>::default();
         {
-            let mut wg = writer.write();
+            let mut wg = table.write();
             wg.insert("hello");
             wg.insert("world");
             wg.replace("world");
             assert_eq!(*wg, expected);
         }
 
-        assert_eq!(*reader.read(), expected);
-        assert_eq!(*writer.write(), expected);
-        assert_eq!(*reader.read(), expected);
+        assert_eq!(*table.read(), expected);
+        assert_eq!(*table.write(), expected);
+        assert_eq!(*table.read(), expected);
     }
 
     #[test]
     fn clear() {
-        let mut writer = Writer::<&str>::new();
-        let mut reader = writer.new_reader();
+        let mut table = AsLockHandle::<&str>::default();
         {
-            let mut wg = writer.write();
+            let mut wg = table.write();
             wg.insert("hello");
             wg.insert("world");
             wg.clear();
         }
 
-        assert!(reader.read().is_empty());
-        assert!((*writer.write()).is_empty());
-        assert!(reader.read().is_empty());
+        assert!(table.read().is_empty());
+        assert!(table.write().is_empty());
+        assert!(table.read().is_empty());
     }
 
     #[test]
@@ -319,10 +258,9 @@ mod test {
             "hello",
         };
 
-        let mut writer = Writer::<&str>::new();
-        let mut reader = writer.new_reader();
+        let mut table = AsLockHandle::<&str>::new(std::collections::HashSet::new());
         {
-            let mut wg = writer.write();
+            let mut wg = table.write();
             wg.insert("hello");
             wg.insert("world");
             wg.insert("I");
@@ -332,19 +270,21 @@ mod test {
             assert_eq!(*wg, expected);
         }
 
-        assert_eq!(*reader.read(), expected);
-        assert_eq!(*writer.write(), expected);
-        assert_eq!(*reader.read(), expected);
+        assert_eq!(*table.read(), expected);
+        assert_eq!(*table.write(), expected);
+        assert_eq!(*table.read(), expected);
     }
 
     #[test]
     fn shrink_to_fit_and_reserve() {
-        let mut writer = Writer::<&str>::new();
-        let mut reader = writer.new_reader();
+        let mut table = AsLockHandle::<&str>::from_identical(
+            std::collections::HashSet::new(),
+            std::collections::HashSet::new(),
+        );
         let initial_capacity;
         let additional = 10;
         {
-            let mut wg = writer.write();
+            let mut wg = table.write();
             wg.insert("hello");
             wg.insert("world");
             wg.shrink_to_fit();
@@ -353,9 +293,9 @@ mod test {
             assert_ge!(wg.capacity(), initial_capacity + additional);
         }
 
-        assert_ge!(reader.read().capacity(), initial_capacity + additional);
-        assert_ge!(writer.write().capacity(), initial_capacity + additional);
-        assert_ge!(reader.read().capacity(), initial_capacity + additional);
+        assert_ge!(table.read().capacity(), initial_capacity + additional);
+        assert_ge!(table.write().capacity(), initial_capacity + additional);
+        assert_ge!(table.read().capacity(), initial_capacity + additional);
     }
 
     #[test]
@@ -366,10 +306,9 @@ mod test {
             "hello",
             "name",
         };
-        let mut writer = Writer::<&str>::new();
-        let mut reader = writer.new_reader();
+        let mut table = AsLockHandle::<&str>::default();
         {
-            let mut wg = writer.write();
+            let mut wg = table.write();
             wg.insert("hello");
             wg.insert("world");
             wg.insert("my");
@@ -380,9 +319,9 @@ mod test {
             assert_eq!(*wg, expected);
         }
 
-        assert_eq!(*reader.read(), expected);
-        assert_eq!(*writer.write(), expected);
-        assert_eq!(*reader.read(), expected);
+        assert_eq!(*table.read(), expected);
+        assert_eq!(*table.write(), expected);
+        assert_eq!(*table.read(), expected);
     }
 
     #[test]
@@ -392,10 +331,9 @@ mod test {
             "world",
         };
 
-        let mut writer = Writer::<&str>::new();
-        let mut reader = writer.new_reader();
+        let mut table = AsLockHandle::<&str>::default();
         {
-            let mut wg = writer.write();
+            let mut wg = table.write();
             wg.insert("hello");
             wg.insert("world");
             assert_eq!(*wg, expected);
@@ -405,8 +343,8 @@ mod test {
             );
         }
 
-        assert!(reader.read().is_empty());
-        assert!(writer.write().is_empty());
-        assert!(reader.read().is_empty());
+        assert!(table.read().is_empty());
+        assert!(table.write().is_empty());
+        assert!(table.read().is_empty());
     }
 }

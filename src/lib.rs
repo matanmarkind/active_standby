@@ -35,13 +35,10 @@
 //! are clonable).
 //!
 //! We provide 2 modules:
-//! 1. primitives - these are building blocks that can be used similarly to a
-//!    RwLock.
-//! 2. collections - these are common collections that use primitives to offer
-//!    users an interface very similar to the collections themselves, but
-//!    conforming to the requirements of active_standby.
-//!
-//! For examples, check out the tests from the collections.
+//! 1. primitives - these are building blocks that can be used to create an
+//!    AsLockHandle for a given table.
+//! 2. collections - active standby version of common collections. Check out the
+//!    implementations for examples of how to implement your own AsLockHandle.
 
 mod macros;
 
@@ -61,6 +58,11 @@ mod btreeset;
 mod hashmap;
 mod hashset;
 mod vec;
+
+/// AsLockHandle's for common collections. Each table type has its own
+/// AsLockHandle, as opposed to RwLock where you simply pass in the table. This
+/// is because of the 2 tables, which require being synchronized, and therefore
+/// updated through the UpdateTables trait, instead of directly.
 pub mod collections {
     pub use crate::btreemap::btreemap;
     pub use crate::btreeset::btreeset;

@@ -69,7 +69,7 @@ macro_rules! generate_aslock_handle {
             $( $Inner:tt ),*
         >)?
     ) => {
-        pub struct Writer$(< $($Inner),* >)? {  // DO NOT SUBMIT pub
+        struct Writer$(< $($Inner),* >)? {
             writer: $crate::primitives::SyncWriter<$Table $(< $($Inner),* >)? >,
         }
 
@@ -174,5 +174,45 @@ macro_rules! generate_aslock_handle {
                 AsLockHandle { writer, reader }
             }
         }
+    }
+}
+
+macro_rules! simple_update_tables {
+    (
+        $Table:ident
+            // Table might be a template type.
+            $(<
+                // Template params may have traits/lifetimes to satisfy.
+                $( $T_Inner:tt $( : $T_Constraint0:tt $(+ $T_Constraints:tt )* )? ),*
+            >
+        )?,
+        $Return:ident $(< $($R_Inner:tt ),* > )?,
+        $closure:expr
+    ) => {
+            struct UpdateTablesStruct {}
+
+            impl<'a, $($( $T_Inner $( : $T_Constraint0 $(+ $T_Constraints )* )? ),*)?>
+                $crate::primitives::UpdateTables<
+                    'a,
+                    $Table$(<$($T_Inner),*>)?,
+                    $Return$(<$($R_Inner),*>)?
+                >
+                for UpdateTablesStruct
+            {
+                fn apply_first(
+                    &mut self,
+                    table: &'a mut $Table$(<$($T_Inner),*>)?,
+                ) -> $Return $(< $($R_Inner ),* > )? {
+                    $closure(self, table)
+                }
+
+                fn apply_second(
+                    mut self,
+                    table: &mut $Table$(<$($T_Inner),*>)?,
+                ) {
+                    self.apply_first(table);
+                }
+            }
+
     }
 }
