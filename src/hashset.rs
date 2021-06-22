@@ -169,6 +169,7 @@ pub mod hashset {
                 ) -> std::collections::hash_set::Drain<'a, T> {
                     table.drain()
                 }
+
                 fn apply_second(mut self, table: &mut HashSet<T>) {
                     self.apply_first(table);
                 }
@@ -197,6 +198,7 @@ pub mod hashset {
                 fn apply_first(&mut self, table: &'a mut HashSet<T>) {
                     table.retain(self.f.clone())
                 }
+
                 fn apply_second(self, table: &mut HashSet<T>) {
                     table.retain(self.f)
                 }
