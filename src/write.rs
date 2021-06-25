@@ -12,13 +12,15 @@ use std::fmt;
 /// Users must be careful to guarantee that apply_first and apply_second cause
 /// the tables to end up in the same state. They also must be certain not to use
 /// the return value to mutate the underlying table, since this likely can't be
-/// mimiced in 'apply_second'.
+/// mimiced in 'apply_second', which will lead to divergent tables.
 ///
 /// It is *highly* discouraged to create updates which return mutable references
 /// to the table's internals. E.g:
 ///
-///```compile_fail
+///```
+/// # use active_standby::primitives::UpdateTables;
 /// struct MutableRef {}
+///
 /// impl<'a, T> UpdateTables<'a, Vec<T>, &'a mut T> for MutableRef {
 ///    fn apply_first(&mut self, table: &'a mut Vec<T>) -> &'a mut T {
 ///        &mut table[0]
@@ -55,26 +57,10 @@ use std::fmt;
 /// UpdateTables, this is can cause divergence between the tables since
 /// apply_second isn't aware of this mutation.
 ///
-/// An example implementation taken from collections::vec:
-/// ```compile_fail
-/// struct SwapRemove {
-///     index: usize,
-/// }
-/// impl SwapRemove {
-///     // Not needed, but can be convenient for making both applies the same.
-///     fn apply<'a, T>(&mut self, table: &'a mut Vec<T>) -> T {
-///         table.swap_remove(self.index)
-///     }
-/// }
-/// impl<'a, T> UpdateTables<'a, Vec<T>, T> for SwapRemove {
-///     fn apply_first(&mut self, table: &'a mut Vec<T>) -> T {
-///         self.apply(table)
-///     }
-///     fn apply_second(mut self, table: &mut Vec<T>) {
-///         self.apply(table);
-///     }
-/// }
-/// ```
+/// If the table holds large elements, a user may want to save memory by having
+/// Table<Arc\<T>>. This can be done safely so long as UpdateTables never
+/// mutates the value pointed to (T). UpdateTables may instead only update the Table
+/// by inserting and removing elements.
 pub trait UpdateTables<'a, T, R> {
     fn apply_first(&mut self, table: &'a mut T) -> R;
 

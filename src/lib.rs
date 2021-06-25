@@ -36,19 +36,29 @@
 //!
 //! We provide 2 modules:
 //! 1. primitives - these are building blocks that can be used to create an
-//!    AsLockHandle for a given table.
+//!    AsLockHandle for a given table. Typically the only primitive a client
+//!    library will need is UpdateTables (see example below).
 //! 2. collections - active standby version of common collections. Check out the
 //!    implementations for examples of how to implement your own AsLockHandle.
 //!
+//! Example:
 //! ```
 //! pub mod aslock {
 //!     use active_standby::primitives::UpdateTables;
+//!
+//!     // Generate an AsLockHandle, which will give wait free read accees
+//!     // to the underlying data. This also generates the associated WriteGuard
+//!     // which is used to mutate the data. Users should interact with this
+//!     // similarly to Arc<RwLock<i32>>.
 //!     active_standby::generate_aslock_handle!(i32);
 //!
+//!     // Client's must implement the mutable interface that they want to offer
+//!     // users of their active standby data structure. This is not automatically
+//!     // generated.
 //!     impl<'w> WriteGuard<'w> {
 //!         pub fn add_one(&mut self) {
 //!             struct AddOne {}
-//!             
+//!
 //!             impl<'a> UpdateTables<'a, i32, ()> for AddOne {
 //!                 fn apply_first(&mut self, table: &'a mut i32) {
 //!                     *table = *table + 1;
@@ -57,7 +67,7 @@
 //!                     self.apply_first(table);
 //!                 }
 //!             }
-//!     
+//!
 //!             self.guard.update_tables(AddOne {})
 //!         }
 //!     }
@@ -79,6 +89,14 @@
 //!     handle.join();
 //! }
 //! ```
+//!
+//! If your table has large elements, you may want to save memory by only
+//! holding each element once (e.g. vec::AsLockHandle<Arc<i32>>). This can be
+//! done safely so long as no elements of the table are mutated, only inserted
+//! and removed. So, keeping with our vector example, if you wanted a function
+//! that increases the value of the first element by 1, you would not increment
+//! the value behind the Arc. You would reassign the first element to a new Arc
+//! with the incremented value.
 
 mod macros;
 
