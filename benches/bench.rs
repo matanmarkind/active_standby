@@ -38,6 +38,19 @@ impl<'a> UpdateTables<'a, i32, ()> for SetZero {
     }
 }
 
+pub mod aslock {
+    active_standby::generate_aslock_handle!(i32);
+
+    impl<'w> WriteGuard<'w> {
+        pub fn add_one(&mut self) {
+            self.guard.update_tables(super::AddOne {})
+        }
+        pub fn set_zero(&mut self) {
+            self.guard.update_tables(super::SetZero {})
+        }
+    }
+}
+
 // Test the speed of acquiring write guards when it never has to wait on readers
 // to release the table.
 #[bench]
@@ -171,6 +184,36 @@ fn plain_atomicbool(b: &mut test::bench::Bencher) {
     });
 }
 
+#[bench]
+fn aslock_readwrite_contention_20(b: &mut test::bench::Bencher) {
+    let mut table = aslock::AsLockHandle::new(1);
+    let _reader_handles: Vec<_> = (0..20)
+        .map(|_| {
+            let mut table_clone = table.clone();
+            std::thread::spawn(move || {
+                // Continually grab read guards.
+                while *table_clone.read() != 0 {
+                    // Hold the read guards to increase the change of read 'contention'.
+                    std::thread::sleep(std::time::Duration::from_micros(100));
+                }
+            })
+        })
+        .collect();
+
+    let mut table_clone = table.clone();
+    let _writer_handle = std::thread::spawn(move || loop {
+        let mut wg = table_clone.write();
+        wg.add_one();
+    });
+
+    b.iter(|| {
+        let rg = table.read();
+        assert_gt!(*rg, 0);
+    });
+}
+
+// The main test, since our core guarantee is that reads are always wait free
+// regardless of read and write usage.
 fn read_guard_readwrite_contention(b: &mut test::bench::Bencher, num_readers: u32) {
     let mut writer = SendWriter::<i32>::new(1);
     let mut reader = writer.new_reader();
@@ -180,6 +223,7 @@ fn read_guard_readwrite_contention(b: &mut test::bench::Bencher, num_readers: u3
             std::thread::spawn(move || {
                 // Continually grab read guards.
                 while *reader.read() != 0 {
+                    // Hold the read guards to increase the change of read 'contention'.
                     std::thread::sleep(std::time::Duration::from_micros(100));
                 }
             })
