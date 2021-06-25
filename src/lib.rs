@@ -39,6 +39,46 @@
 //!    AsLockHandle for a given table.
 //! 2. collections - active standby version of common collections. Check out the
 //!    implementations for examples of how to implement your own AsLockHandle.
+//!
+//! ```
+//! pub mod aslock {
+//!     use active_standby::primitives::UpdateTables;
+//!     active_standby::generate_aslock_handle!(i32);
+//!
+//!     impl<'w> WriteGuard<'w> {
+//!         pub fn add_one(&mut self) {
+//!             struct AddOne {}
+//!             
+//!             impl<'a> UpdateTables<'a, i32, ()> for AddOne {
+//!                 fn apply_first(&mut self, table: &'a mut i32) {
+//!                     *table = *table + 1;
+//!                 }
+//!                 fn apply_second(mut self, table: &mut i32) {
+//!                     self.apply_first(table);
+//!                 }
+//!             }
+//!     
+//!             self.guard.update_tables(AddOne {})
+//!         }
+//!     }
+//! }
+//!
+//! fn main() {
+//!     let mut table = aslock::AsLockHandle::new(0);
+//!     let mut table2 = table.clone();
+//!     let handle = std::thread::spawn(move || {
+//!         while *table2.read() != 1 {
+//!             std::thread::sleep(std::time::Duration::from_micros(100));
+//!         }
+//!     });
+//!
+//!     {
+//!         let mut wg = table.write();
+//!         wg.add_one();
+//!     }
+//!     handle.join();
+//! }
+//! ```
 
 mod macros;
 

@@ -12,46 +12,52 @@
 /// The user adds mutability to the table is by creating an impl for the
 /// generated WriteGuard.
 ///
+/// The macro can't handle paths, so you can't pass 'std::collections::HashMap'.
+/// In such a case just put 'use std::collections::HashMap' right before the
+/// macro invocation.
+///
+/// For a simple example check out bench.rs. For larger examples, check out
+/// active_standby::collections.
+///
 /// ```
-/// # #[macro_use] extern crate active_standby;
 /// pub mod aslock {
-///     # use active_standby::primitives::UpdateTables;
-///     // The macro can't handle paths, so you can't pass 'std::collections::HashMap'.
-///     // In such a case just put 'use std::collections::HashMap' right before the
-///     // macro invocation.
+///     use active_standby::primitives::UpdateTables;
 ///     active_standby::generate_aslock_handle!(i32);
 ///
 ///     impl<'w> WriteGuard<'w> {
 ///         pub fn add_one(&mut self) {
-///            struct AddOne {}
-///
-///            impl<'a> UpdateTables<'a, i32, ()> for AddOne {
-///                fn apply_first(&mut self, table: &'a mut i32) {
-///                    *table = *table + 1;
+///             struct AddOne {}
+///             
+///             impl<'a> UpdateTables<'a, i32, ()> for AddOne {
+///                 fn apply_first(&mut self, table: &'a mut i32) {
+///                     *table = *table + 1;
 ///                 }
 ///                 fn apply_second(mut self, table: &mut i32) {
 ///                     self.apply_first(table);
 ///                 }
 ///             }
-///
+///     
 ///             self.guard.update_tables(AddOne {})
 ///         }
 ///     }
 /// }
 ///
 /// fn main() {
-///   let mut aslock = aslock::AsLockHandle::default();
-///   assert_eq!(*aslock.read(), 0);
-///   {
-///     let mut wg = aslock.write();
-///     wg.add_one();
-///   }
-///   assert_eq!(*aslock.read(), 1);
+///     let mut table = aslock::AsLockHandle::new(0);
+///     let mut table2 = table.clone();
+///     let handle = std::thread::spawn(move || {
+///         while *table2.read() != 1 {
+///             std::thread::sleep(std::time::Duration::from_micros(100));
+///         }
+///     });
+///
+///     {
+///         let mut wg = table.write();
+///         wg.add_one();
+///     }
+///     handle.join();
 /// }
 /// ```
-///
-/// For a simple example check out bench.rs. For larger examples, check out
-/// active_standby::collections.
 #[macro_export]
 macro_rules! generate_aslock_handle {
     ( $Table:ident
