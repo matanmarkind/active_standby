@@ -42,19 +42,20 @@ We provide 2 modules:
    implementations for examples of how to implement your own AsLockHandle.
 
 Example:
-```
+```rust
 pub mod aslock {
     use active_standby::primitives::UpdateTables;
 
-    // Generate an AsLockHandle, which will give wait free read accees
-    // to the underlying data. This also generates the associated WriteGuard
-    // which is used to mutate the data. Users should interact with this
-    // similarly to Arc<RwLock<i32>>.
+    // Generate an AsLockHandle, which will give wait free 
+    // read accees to the underlying data. This also generates 
+    // the associated WriteGuard which is used to mutate the 
+    // data. Users should interact with this similarly to 
+    // Arc<RwLock<i32>>.
     active_standby::generate_aslock_handle!(i32);
 
-    // Client's must implement the mutable interface that they want to offer
-    // users of their active standby data structure. This is not automatically
-    // generated.
+    // Client's must implement the mutable interface that 
+    // they want to offer users of their active standby data 
+    // structure. This is not automatically generated.
     impl<'w> WriteGuard<'w> {
         pub fn add_one(&mut self) {
             struct AddOne {}
