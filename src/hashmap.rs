@@ -1,12 +1,6 @@
 /// Implementation of HashMap for use in the active_standby model.
-///
-/// Specifically this allows users to call mutating functions on the
-/// hashmap::WriteGuard like they would on a HashMap. Functions that return a
-/// reference to data owned by the underlying Vec will have different return
-/// values because we don't allow tying return values to the underlying data to
-/// avoid ever returning a mutable reference which the reader will use to change
-/// the table without recording it.
-
+/// hashsmap::AsLockHandle<K, V>, should function similarly to
+/// Arc<RwLock<HashMap<K, V>>>.
 pub mod hashmap {
     use crate::primitives::UpdateTables;
     use std::collections::HashMap;
@@ -14,141 +8,46 @@ pub mod hashmap {
 
     crate::generate_aslock_handle!(HashMap<K, V>);
 
-    struct Insert<K, V> {
-        key: K,
-        value: V,
-    }
-    impl<'a, K, V> UpdateTables<'a, HashMap<K, V>, Option<V>> for Insert<K, V>
-    where
-        K: Eq + Hash + Clone,
-        V: Clone,
-    {
-        fn apply_first(&mut self, table: &'a mut HashMap<K, V>) -> Option<V> {
-            table.insert(self.key.clone(), self.value.clone())
-        }
-        fn apply_second(self, table: &mut HashMap<K, V>) {
-            // Move the value instead of cloning.
-            table.insert(self.key, self.value);
-        }
-    }
-
-    struct Clear {}
-    impl<'a, K, V> UpdateTables<'a, HashMap<K, V>, ()> for Clear {
-        fn apply_first(&mut self, table: &'a mut HashMap<K, V>) {
-            table.clear()
-        }
-        fn apply_second(mut self, table: &mut HashMap<K, V>) {
-            self.apply_first(table);
-        }
-    }
-
-    struct Remove<Q> {
-        key_like: Q,
-    }
-    impl<'a, K, V, Q> UpdateTables<'a, HashMap<K, V>, Option<V>> for Remove<Q>
-    where
-        Q: Eq + Hash,
-        K: Eq + Hash + std::borrow::Borrow<Q>,
-    {
-        fn apply_first(&mut self, table: &'a mut HashMap<K, V>) -> Option<V> {
-            table.remove(&self.key_like)
-        }
-        fn apply_second(mut self, table: &mut HashMap<K, V>) {
-            self.apply_first(table);
-        }
-    }
-
-    struct RemoveEntry<Q> {
-        key_like: Q,
-    }
-    impl<'a, K, V, Q> UpdateTables<'a, HashMap<K, V>, Option<(K, V)>> for RemoveEntry<Q>
-    where
-        Q: Eq + Hash,
-        K: Eq + Hash + std::borrow::Borrow<Q>,
-    {
-        fn apply_first(&mut self, table: &'a mut HashMap<K, V>) -> Option<(K, V)> {
-            table.remove_entry(&self.key_like)
-        }
-        fn apply_second(mut self, table: &mut HashMap<K, V>) {
-            self.apply_first(table);
-        }
-    }
-
-    struct Reserve {
-        additional: usize,
-    }
-    impl<'a, K, V> UpdateTables<'a, HashMap<K, V>, ()> for Reserve
-    where
-        K: Eq + Hash,
-    {
-        fn apply_first(&mut self, table: &'a mut HashMap<K, V>) {
-            table.reserve(self.additional)
-        }
-        fn apply_second(mut self, table: &mut HashMap<K, V>) {
-            self.apply_first(table);
-        }
-    }
-
-    struct ShrinkToFit {}
-    impl<'a, K, V> UpdateTables<'a, HashMap<K, V>, ()> for ShrinkToFit
-    where
-        K: Eq + Hash,
-    {
-        fn apply_first(&mut self, table: &'a mut HashMap<K, V>) {
-            table.shrink_to_fit()
-        }
-        fn apply_second(mut self, table: &mut HashMap<K, V>) {
-            self.apply_first(table);
-        }
-    }
-
-    struct Drain {}
-    impl<'a, K, V> UpdateTables<'a, HashMap<K, V>, std::collections::hash_map::Drain<'a, K, V>>
-        for Drain
-    where
-        K: Eq + Hash,
-    {
-        fn apply_first(
-            &mut self,
-            table: &'a mut HashMap<K, V>,
-        ) -> std::collections::hash_map::Drain<'a, K, V> {
-            table.drain()
-        }
-        fn apply_second(mut self, table: &mut HashMap<K, V>) {
-            self.apply_first(table);
-        }
-    }
-
-    struct Retain<K, V, F>
-    where
-        F: 'static + Clone + FnMut(&K, &mut V) -> bool,
-    {
-        f: F,
-        _compile_k_v: std::marker::PhantomData<(K, V)>,
-    }
-    impl<'a, K, V, F> UpdateTables<'a, HashMap<K, V>, ()> for Retain<K, V, F>
-    where
-        K: Eq + Hash,
-        F: 'static + Clone + FnMut(&K, &mut V) -> bool,
-    {
-        fn apply_first(&mut self, table: &'a mut HashMap<K, V>) {
-            table.retain(self.f.clone())
-        }
-        fn apply_second(self, table: &mut HashMap<K, V>) {
-            table.retain(self.f)
-        }
-    }
-
     impl<'w, 'a, K, V> WriteGuard<'w, K, V>
     where
         K: 'static + Eq + Hash + Clone + Send,
         V: 'static + Clone + Send,
     {
         pub fn insert(&mut self, key: K, value: V) -> Option<V> {
+            struct Insert<K, V> {
+                key: K,
+                value: V,
+            }
+
+            impl<'a, K, V> UpdateTables<'a, HashMap<K, V>, Option<V>> for Insert<K, V>
+            where
+                K: Eq + Hash + Clone,
+                V: Clone,
+            {
+                fn apply_first(&mut self, table: &'a mut HashMap<K, V>) -> Option<V> {
+                    table.insert(self.key.clone(), self.value.clone())
+                }
+                fn apply_second(self, table: &mut HashMap<K, V>) {
+                    // Move the value instead of cloning.
+                    table.insert(self.key, self.value);
+                }
+            }
+
             self.guard.update_tables(Insert { key, value })
         }
 
         pub fn clear(&mut self) {
+            struct Clear {}
+
+            impl<'a, K, V> UpdateTables<'a, HashMap<K, V>, ()> for Clear {
+                fn apply_first(&mut self, table: &'a mut HashMap<K, V>) {
+                    table.clear()
+                }
+                fn apply_second(mut self, table: &mut HashMap<K, V>) {
+                    self.apply_first(table);
+                }
+            }
+
             self.guard.update_tables(Clear {})
         }
 
@@ -157,6 +56,23 @@ pub mod hashmap {
             K: std::borrow::Borrow<Q>,
             Q: 'static + Hash + Eq + Send,
         {
+            struct Remove<Q> {
+                key_like: Q,
+            }
+
+            impl<'a, K, V, Q> UpdateTables<'a, HashMap<K, V>, Option<V>> for Remove<Q>
+            where
+                Q: Eq + Hash,
+                K: Eq + Hash + std::borrow::Borrow<Q>,
+            {
+                fn apply_first(&mut self, table: &'a mut HashMap<K, V>) -> Option<V> {
+                    table.remove(&self.key_like)
+                }
+                fn apply_second(mut self, table: &mut HashMap<K, V>) {
+                    self.apply_first(table);
+                }
+            }
+
             self.guard.update_tables(Remove { key_like })
         }
 
@@ -165,18 +81,84 @@ pub mod hashmap {
             K: std::borrow::Borrow<Q>,
             Q: 'static + Hash + Eq + Send,
         {
+            struct RemoveEntry<Q> {
+                key_like: Q,
+            }
+
+            impl<'a, K, V, Q> UpdateTables<'a, HashMap<K, V>, Option<(K, V)>> for RemoveEntry<Q>
+            where
+                Q: Eq + Hash,
+                K: Eq + Hash + std::borrow::Borrow<Q>,
+            {
+                fn apply_first(&mut self, table: &'a mut HashMap<K, V>) -> Option<(K, V)> {
+                    table.remove_entry(&self.key_like)
+                }
+                fn apply_second(mut self, table: &mut HashMap<K, V>) {
+                    self.apply_first(table);
+                }
+            }
+
             self.guard.update_tables(RemoveEntry { key_like })
         }
 
         pub fn reserve(&mut self, additional: usize) {
+            struct Reserve {
+                additional: usize,
+            }
+
+            impl<'a, K, V> UpdateTables<'a, HashMap<K, V>, ()> for Reserve
+            where
+                K: Eq + Hash,
+            {
+                fn apply_first(&mut self, table: &'a mut HashMap<K, V>) {
+                    table.reserve(self.additional)
+                }
+                fn apply_second(mut self, table: &mut HashMap<K, V>) {
+                    self.apply_first(table);
+                }
+            }
+
             self.guard.update_tables(Reserve { additional })
         }
 
         pub fn shrink_to_fit(&mut self) {
+            struct ShrinkToFit {}
+
+            impl<'a, K, V> UpdateTables<'a, HashMap<K, V>, ()> for ShrinkToFit
+            where
+                K: Eq + Hash,
+            {
+                fn apply_first(&mut self, table: &'a mut HashMap<K, V>) {
+                    table.shrink_to_fit()
+                }
+                fn apply_second(mut self, table: &mut HashMap<K, V>) {
+                    self.apply_first(table);
+                }
+            }
+
             self.guard.update_tables(ShrinkToFit {})
         }
 
         pub fn drain(&'a mut self) -> std::collections::hash_map::Drain<'a, K, V> {
+            struct Drain {}
+
+            impl<'a, K, V>
+                UpdateTables<'a, HashMap<K, V>, std::collections::hash_map::Drain<'a, K, V>>
+                for Drain
+            where
+                K: Eq + Hash,
+            {
+                fn apply_first(
+                    &mut self,
+                    table: &'a mut HashMap<K, V>,
+                ) -> std::collections::hash_map::Drain<'a, K, V> {
+                    table.drain()
+                }
+                fn apply_second(mut self, table: &mut HashMap<K, V>) {
+                    self.apply_first(table);
+                }
+            }
+
             self.guard.update_tables(Drain {})
         }
 
@@ -184,6 +166,26 @@ pub mod hashmap {
         where
             F: 'static + Send + Clone + FnMut(&K, &mut V) -> bool,
         {
+            struct Retain<K, V, F>
+            where
+                F: 'static + Clone + FnMut(&K, &mut V) -> bool,
+            {
+                f: F,
+                _compile_k_v: std::marker::PhantomData<(K, V)>,
+            }
+            impl<'a, K, V, F> UpdateTables<'a, HashMap<K, V>, ()> for Retain<K, V, F>
+            where
+                K: Eq + Hash,
+                F: 'static + Clone + FnMut(&K, &mut V) -> bool,
+            {
+                fn apply_first(&mut self, table: &'a mut HashMap<K, V>) {
+                    table.retain(self.f.clone())
+                }
+                fn apply_second(self, table: &mut HashMap<K, V>) {
+                    table.retain(self.f)
+                }
+            }
+
             self.guard.update_tables(Retain {
                 f,
                 _compile_k_v: std::marker::PhantomData,

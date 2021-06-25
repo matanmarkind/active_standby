@@ -14,52 +14,44 @@
 ///
 /// ```
 /// # #[macro_use] extern crate active_standby;
-/// # use active_standby::primitives::UpdateTables;
+/// pub mod aslock {
+///     # use active_standby::primitives::UpdateTables;
+///     // The macro can't handle paths, so you can't pass 'std::collections::HashMap'.
+///     // In such a case just put 'use std::collections::HashMap' right before the
+///     // macro invocation.
+///     active_standby::generate_aslock_handle!(i32);
 ///
-/// // The macro can't handle paths, so you can't pass 'std::collections::HashMap'.
-/// use std::collections::HashMap;
-/// generate_aslock_handle!(HashMap<K, V>);
+///     impl<'w> WriteGuard<'w> {
+///         pub fn add_one(&mut self) {
+///            struct AddOne {}
 ///
-/// struct Insert<K, V> {
-///     key: K,
-///     value: V,
-/// }
+///            impl<'a> UpdateTables<'a, i32, ()> for AddOne {
+///                fn apply_first(&mut self, table: &'a mut i32) {
+///                    *table = *table + 1;
+///                 }
+///                 fn apply_second(mut self, table: &mut i32) {
+///                     self.apply_first(table);
+///                 }
+///             }
 ///
-/// impl<'a, K, V> UpdateTables<'a, HashMap<K, V>, Option<V>> for Insert<K, V>
-/// where
-///     K: Eq + std::hash::Hash + Clone,
-///     V: Clone,
-/// {
-///     fn apply_first(&mut self, table: &'a mut HashMap<K, V>) -> Option<V> {
-///         table.insert(self.key.clone(), self.value.clone())
-///     }
-///     fn apply_second(self, table: &mut HashMap<K, V>) {
-///         // Move the value instead of cloning.
-///         table.insert(self.key, self.value);
-///     }
-/// }
-///
-/// impl<'w, K, V> WriteGuard<'w, K, V>
-/// where
-///     K: 'static + Eq + std::hash::Hash + Clone + Send,
-///     V: 'static + Clone + Send,
-/// {
-///     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
-///         self.guard.update_tables(Insert { key, value })
+///             self.guard.update_tables(AddOne {})
+///         }
 ///     }
 /// }
 ///
 /// fn main() {
-///   let mut aslock = AsLockHandle::<i32, i32>::default();
+///   let mut aslock = aslock::AsLockHandle::default();
+///   assert_eq!(*aslock.read(), 0);
 ///   {
 ///     let mut wg = aslock.write();
-///     wg.insert(10, 4);
+///     wg.add_one();
 ///   }
-///   assert_eq!(aslock.read()[&10], 4);
+///   assert_eq!(*aslock.read(), 1);
 /// }
 /// ```
 ///
-/// For more examples, check out active_standby::collections.
+/// For a simple example check out bench.rs. For larger examples, check out
+/// active_standby::collections.
 #[macro_export]
 macro_rules! generate_aslock_handle {
     ( $Table:ident
@@ -71,24 +63,6 @@ macro_rules! generate_aslock_handle {
     ) => {
         struct Writer$(< $($Inner),* >)? {
             writer: $crate::primitives::SyncWriter<$Table $(< $($Inner),* >)? >,
-        }
-
-        impl$(< $($Inner),* >)? Writer$(< $($Inner),* >)?
-            where $Table$(<$($Inner),*>)? : Default,
-        {
-            #[allow(dead_code)]
-            pub fn default() -> Writer$(< $($Inner),* >)? {
-                Self::from_identical($Table::default(), $Table::default())
-            }
-        }
-
-        impl$(< $($Inner),* >)? Writer$(< $($Inner),* >)?
-            where $Table$(<$($Inner),*>)? : Clone,
-        {
-            #[allow(dead_code)]
-            pub fn new(t: $Table $(< $($Inner),* >)?) -> Writer$(< $($Inner),* >)? {
-                Self::from_identical(t.clone(), t)
-            }
         }
 
         impl$(< $($Inner),* >)? Writer$(< $($Inner),* >)? {
