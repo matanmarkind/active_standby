@@ -140,7 +140,7 @@ mod test {
             "world" => 2,
         };
 
-        let mut table = AsLockHandle::<&str, i32>::default();
+        let table = AsLockHandle::<&str, i32>::default();
         {
             let mut wg = table.write();
             wg.insert("hello", 1);
@@ -155,7 +155,7 @@ mod test {
 
     #[test]
     fn clear() {
-        let mut table = AsLockHandle::<&str, i32>::default();
+        let table = AsLockHandle::<&str, i32>::default();
         {
             let mut wg = table.write();
             wg.insert("hello", 1);
@@ -174,7 +174,7 @@ mod test {
             "hello" => 1,
         };
 
-        let mut table = AsLockHandle::<&str, i32>::default();
+        let table = AsLockHandle::<&str, i32>::default();
         {
             let mut wg = table.write();
             wg.insert("hello", 1);
@@ -194,7 +194,7 @@ mod test {
             "hello" => 1,
         };
 
-        let mut table = AsLockHandle::<&str, i32>::default();
+        let table = AsLockHandle::<&str, i32>::default();
         {
             let mut wg = table.write();
             wg.insert("hello", 1);
@@ -217,7 +217,7 @@ mod test {
             "joe" => 4,
         };
 
-        let mut table = AsLockHandle::<&str, i32>::default();
+        let table = AsLockHandle::<&str, i32>::default();
         {
             let map1 = btreemap! {
                 "hello" => 1,

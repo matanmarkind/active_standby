@@ -450,9 +450,12 @@ impl<T> SyncWriter<T> {
     }
 
     pub fn write(&self) -> SyncWriteGuard<'_, T> {
+        // Grab the mutex as the first thing.
+        let _mtx_guard = Some(self.mtx.lock().unwrap());
+
         let writer = unsafe { &mut *self.writer.get() };
         SyncWriteGuard {
-            _mtx_guard: Some(self.mtx.lock().unwrap()),
+            _mtx_guard,
             write_guard: Some(UnsafeCell::new(writer.write())),
         }
     }
@@ -547,6 +550,15 @@ mod test {
     }
 
     #[test]
+    #[should_panic(expected = "Reader is not reentrant")]
+    fn reader_not_reentrant() {
+        let writer = Writer::<Vec<i32>>::default();
+        let reader = writer.new_reader();
+        let _rg1 = reader.read();
+        let _rg2 = reader.read();
+    }
+
+    #[test]
     fn one_write_guard() {
         let mut writer = Writer::<Vec<i32>>::default();
         let _wg = writer.write();
@@ -561,7 +573,7 @@ mod test {
     #[test]
     fn one_reade_guard() {
         let writer = Writer::<Vec<i32>>::default();
-        let mut reader = writer.new_reader();
+        let reader = writer.new_reader();
         let _rg = reader.read();
 
         // If we uncomment this line the program fails to compile due to a
@@ -574,7 +586,7 @@ mod test {
     #[test]
     fn publish_update() {
         let mut writer = Writer::<Vec<i32>>::default();
-        let mut reader = writer.new_reader();
+        let reader = writer.new_reader();
         assert_eq!(reader.read().len(), 0);
 
         {
@@ -599,7 +611,7 @@ mod test {
             wg.update_tables(PopVec {});
             wg.update_tables(PushVec { value: 5 });
         }
-        let mut reader = writer.new_reader();
+        let reader = writer.new_reader();
         assert_eq!(*reader.read(), vec![2, 3, 5]);
     }
 
@@ -613,7 +625,7 @@ mod test {
             wg.update_tables(PopVec {});
             wg.update_tables(PushVec { value: Box::new(5) });
         }
-        let mut reader = writer.new_reader();
+        let reader = writer.new_reader();
         assert_eq!(*reader.read(), vec![Box::new(2), Box::new(5)]);
 
         {
@@ -623,7 +635,7 @@ mod test {
             wg.update_tables(PopVec {});
             wg.update_tables(PushVec { value: Box::new(7) });
         }
-        let mut reader = writer.new_reader();
+        let reader = writer.new_reader();
         assert_eq!(
             *reader.read(),
             vec![Box::new(2), Box::new(5), Box::new(9), Box::new(7)]
@@ -633,14 +645,14 @@ mod test {
             let mut wg = writer.write();
             wg.update_tables(PopVec {});
         }
-        let mut reader = writer.new_reader();
+        let reader = writer.new_reader();
         assert_eq!(*reader.read(), vec![Box::new(2), Box::new(5), Box::new(9)]);
     }
 
     #[test]
     fn multi_thread() {
         let mut writer = Writer::<Vec<i32>>::default();
-        let mut reader = writer.new_reader();
+        let reader = writer.new_reader();
         let handler = thread::spawn(move || {
             while *reader.read() != vec![2, 3, 5] {
                 // Since commits oly happen when a WriteGuard is dropped no reader
@@ -649,7 +661,7 @@ mod test {
             }
 
             // Show multiple readers in multiple threads.
-            let mut reader2 = Reader::clone(&reader);
+            let reader2 = Reader::clone(&reader);
             let handler = thread::spawn(move || while *reader2.read() != vec![2, 3, 5] {});
             assert!(handler.join().is_ok());
         });
@@ -669,7 +681,7 @@ mod test {
     #[test]
     fn writer_dropped() {
         // Show that when the Writer is dropped, Readers remain valid.
-        let mut reader;
+        let reader;
         {
             let mut writer = Writer::<Vec<i32>>::default();
             reader = writer.new_reader();
@@ -689,7 +701,7 @@ mod test {
     #[test]
     fn debug_str() {
         let mut writer = Writer::<Vec<i32>>::default();
-        let mut reader = writer.new_reader();
+        let reader = writer.new_reader();
         assert_eq!(format!("{:?}", writer), "Writer { num_ops_to_replay: 0 }");
         {
             let mut wg = writer.write();
@@ -710,7 +722,7 @@ mod test {
     fn mutable_ref() {
         // Show that when the Writer is dropped, Readers remain valid.
         let mut writer = Writer::<Vec<i32>>::default();
-        let mut reader = writer.new_reader();
+        let reader = writer.new_reader();
 
         {
             let mut wg = writer.write();

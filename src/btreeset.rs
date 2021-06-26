@@ -157,7 +157,7 @@ mod test {
             "world",
         };
 
-        let mut table = AsLockHandle::<&str>::default();
+        let table = AsLockHandle::<&str>::default();
         {
             let mut wg = table.write();
             wg.insert("hello");
@@ -172,7 +172,7 @@ mod test {
 
     #[test]
     fn clear() {
-        let mut table = AsLockHandle::<&str>::default();
+        let table = AsLockHandle::<&str>::default();
         {
             let mut wg = table.write();
             wg.insert("hello");
@@ -190,7 +190,7 @@ mod test {
         let expected = btreeset! {
             "hello",
         };
-        let mut table = AsLockHandle::<&str>::default();
+        let table = AsLockHandle::<&str>::default();
         {
             let mut wg = table.write();
             wg.insert("hello");
@@ -216,7 +216,7 @@ mod test {
             "joe",
         };
 
-        let mut table = AsLockHandle::<&str>::default();
+        let table = AsLockHandle::<&str>::default();
         {
             let map1 = btreeset! {
                 "hello",

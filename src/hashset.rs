@@ -218,7 +218,7 @@ mod test {
             "world",
         };
 
-        let mut table = AsLockHandle::<&str>::default();
+        let table = AsLockHandle::<&str>::default();
         {
             let mut wg = table.write();
             wg.insert("hello");
@@ -234,7 +234,7 @@ mod test {
 
     #[test]
     fn clear() {
-        let mut table = AsLockHandle::<&str>::default();
+        let table = AsLockHandle::<&str>::default();
         {
             let mut wg = table.write();
             wg.insert("hello");
@@ -253,7 +253,7 @@ mod test {
             "hello",
         };
 
-        let mut table = AsLockHandle::<&str>::new(std::collections::HashSet::new());
+        let table = AsLockHandle::<&str>::new(std::collections::HashSet::new());
         {
             let mut wg = table.write();
             wg.insert("hello");
@@ -272,7 +272,7 @@ mod test {
 
     #[test]
     fn shrink_to_fit_and_reserve() {
-        let mut table = AsLockHandle::<&str>::from_identical(
+        let table = AsLockHandle::<&str>::from_identical(
             std::collections::HashSet::new(),
             std::collections::HashSet::new(),
         );
@@ -301,7 +301,7 @@ mod test {
             "hello",
             "name",
         };
-        let mut table = AsLockHandle::<&str>::default();
+        let table = AsLockHandle::<&str>::default();
         {
             let mut wg = table.write();
             wg.insert("hello");
@@ -326,7 +326,7 @@ mod test {
             "world",
         };
 
-        let mut table = AsLockHandle::<&str>::default();
+        let table = AsLockHandle::<&str>::default();
         {
             let mut wg = table.write();
             wg.insert("hello");

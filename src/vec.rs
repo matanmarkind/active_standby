@@ -235,8 +235,8 @@ mod test {
 
     #[test]
     fn push() {
-        let mut lock1 = AsLockHandle::<i32>::default();
-        let mut lock2 = lock1.clone();
+        let lock1 = AsLockHandle::<i32>::default();
+        let lock2 = lock1.clone();
         assert_eq!(lock1.read().len(), 0);
 
         {
@@ -254,11 +254,11 @@ mod test {
 
     #[test]
     fn clear() {
-        let mut aslock = AsLockHandle::<i32>::default();
+        let aslock = AsLockHandle::<i32>::default();
         assert_eq!(aslock.read().len(), 0);
 
         {
-            let mut aslock2 = aslock.clone();
+            let aslock2 = aslock.clone();
             let mut wg = aslock.write();
             wg.push(2);
             assert_eq!(wg.len(), 1);
@@ -278,7 +278,7 @@ mod test {
 
     #[test]
     fn pop() {
-        let mut table = AsLockHandle::<i32>::default();
+        let table = AsLockHandle::<i32>::default();
         {
             let mut wg = table.write();
             wg.push(2);
@@ -295,7 +295,7 @@ mod test {
 
     #[test]
     fn indirect_type() {
-        let mut table = AsLockHandle::<Box<i32>>::default();
+        let table = AsLockHandle::<Box<i32>>::default();
 
         {
             let mut wg = table.write();
@@ -310,7 +310,7 @@ mod test {
 
     #[test]
     fn reserve() {
-        let mut table = AsLockHandle::<i32>::default();
+        let table = AsLockHandle::<i32>::default();
 
         {
             let mut wg = table.write();
@@ -324,7 +324,7 @@ mod test {
 
     #[test]
     fn reserve_exact() {
-        let mut table = AsLockHandle::<i32>::default();
+        let table = AsLockHandle::<i32>::default();
 
         {
             let mut wg = table.write();
@@ -338,7 +338,7 @@ mod test {
 
     #[test]
     fn shrink_to_fit() {
-        let mut table = AsLockHandle::<i32>::default();
+        let table = AsLockHandle::<i32>::default();
 
         {
             let mut wg = table.write();
@@ -355,7 +355,7 @@ mod test {
 
     #[test]
     fn truncate() {
-        let mut table = AsLockHandle::<i32>::default();
+        let table = AsLockHandle::<i32>::default();
 
         {
             let mut wg = table.write();
@@ -372,7 +372,7 @@ mod test {
 
     #[test]
     fn swap_remove() {
-        let mut table = AsLockHandle::<i32>::default();
+        let table = AsLockHandle::<i32>::default();
 
         {
             let mut wg = table.write();
@@ -389,8 +389,8 @@ mod test {
 
     #[test]
     fn insert() {
-        let mut table = AsLockHandle::<i32>::default();
-        let mut table2 = table.clone();
+        let table = AsLockHandle::<i32>::default();
+        let table2 = table.clone();
 
         {
             let mut wg = table.write();
@@ -409,7 +409,7 @@ mod test {
 
     #[test]
     fn retain() {
-        let mut table = AsLockHandle::<i32>::default();
+        let table = AsLockHandle::<i32>::default();
 
         {
             let mut wg = table.write();
@@ -426,7 +426,7 @@ mod test {
 
     #[test]
     fn drain() {
-        let mut table = AsLockHandle::<i32>::new(vec![]);
+        let table = AsLockHandle::<i32>::new(vec![]);
 
         {
             let mut wg = table.write();
@@ -443,7 +443,7 @@ mod test {
 
     #[test]
     fn lifetimes() {
-        let mut table = AsLockHandle::<i32>::from_identical(vec![], vec![]);
+        let table = AsLockHandle::<i32>::from_identical(vec![], vec![]);
 
         {
             let mut wg = table.write();

@@ -66,12 +66,12 @@ impl<T> Reader<T> {
     /// This is wait free since there is nothing to lock, and the Writer is
     /// responsible for never mutating the table that a Reader would want to
     /// read from.
-    pub fn read(&mut self) -> ReadGuard<'_, T> {
+    pub fn read(&self) -> ReadGuard<'_, T> {
         // Theoretically we could add a counter for number of entries and only
         // increment epoch on transitions from 0 <-> 1 guards. This would make
         // Reader re-entrant.
         let old_epoch = self.my_epoch.load(Ordering::Acquire);
-        assert_eq!(old_epoch % 2, 0);
+        assert_eq!(old_epoch % 2, 0, "Reader is not reentrant");
         self.my_epoch.store(old_epoch + 1, Ordering::Release);
 
         // The reader must update the epoch before taking the table. This
