@@ -61,7 +61,7 @@ impl<T> Reader<T> {
             my_key_in_readers: key,
             readers: Arc::clone(readers),
             table: Arc::clone(table),
-            _not_sync: std::cell::UnsafeCell::new(|_|{}),
+            _not_sync: std::cell::UnsafeCell::new(|_| {}),
         }
     }
 
