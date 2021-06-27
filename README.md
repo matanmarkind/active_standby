@@ -78,8 +78,8 @@ pub mod aslock {
 }
 
 fn main() {
-    let mut table = aslock::AsLockHandle::new(0);
-    let mut table2 = table.clone();
+    let table = aslock::AsLockHandle::new(0);
+    let table2 = table.clone();
     let handle = std::thread::spawn(move || {
         while *table2.read() != 1 {
             sleep(Duration::from_micros(100));

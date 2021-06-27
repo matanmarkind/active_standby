@@ -23,6 +23,9 @@ pub struct Reader<T> {
 
     // The table.
     table: Arc<Table<T>>,
+
+    // Make un-sync.
+    _not_sync: std::cell::UnsafeCell<fn(&T)>,
 }
 
 pub struct ReadGuard<'r, T> {
@@ -58,6 +61,7 @@ impl<T> Reader<T> {
             my_key_in_readers: key,
             readers: Arc::clone(readers),
             table: Arc::clone(table),
+            _not_sync: std::cell::UnsafeCell::new(|_|{}),
         }
     }
 
