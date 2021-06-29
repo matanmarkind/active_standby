@@ -7,163 +7,202 @@ pub mod vec {
 
     crate::generate_aslock_handle!(Vec<T>);
 
+    struct Push<T> {
+        value: T,
+    }
+
+    impl<'a, T> UpdateTables<'a, Vec<T>, ()> for Push<T>
+    where
+        T: Clone,
+    {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) {
+            table.push(self.value.clone());
+        }
+        fn apply_second(self, table: &mut Vec<T>) {
+            table.push(self.value); // Move the value instead of cloning.
+        }
+    }
+
+    struct Insert<T> {
+        index: usize,
+        element: T,
+    }
+
+    impl<'a, T> UpdateTables<'a, Vec<T>, ()> for Insert<T>
+    where
+        T: Clone,
+    {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) {
+            table.insert(self.index, self.element.clone())
+        }
+        fn apply_second(self, table: &mut Vec<T>) {
+            // Move the value instead of cloning.
+            table.insert(self.index, self.element)
+        }
+    }
+
+    struct Clear {}
+
+    impl<'a, T> UpdateTables<'a, Vec<T>, ()> for Clear {
+        fn apply_first(&mut self, table: &mut Vec<T>) {
+            table.clear()
+        }
+        fn apply_second(mut self, table: &mut Vec<T>) {
+            self.apply_first(table);
+        }
+    }
+
+    struct Pop {}
+
+    impl<'a, T> UpdateTables<'a, Vec<T>, Option<T>> for Pop {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) -> Option<T> {
+            table.pop()
+        }
+        fn apply_second(mut self, table: &mut Vec<T>) {
+            self.apply_first(table);
+        }
+    }
+
+    struct Reserve {
+        additional: usize,
+    }
+
+    impl<'a, T> UpdateTables<'a, Vec<T>, ()> for Reserve {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) {
+            table.reserve(self.additional)
+        }
+        fn apply_second(mut self, table: &mut Vec<T>) {
+            self.apply_first(table);
+        }
+    }
+
+    struct ReserveExact {
+        additional: usize,
+    }
+
+    impl<'a, T> UpdateTables<'a, Vec<T>, ()> for ReserveExact {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) {
+            table.reserve(self.additional)
+        }
+        fn apply_second(mut self, table: &mut Vec<T>) {
+            self.apply_first(table);
+        }
+    }
+
+    struct ShrinkToFit {}
+
+    impl<'a, T> UpdateTables<'a, Vec<T>, ()> for ShrinkToFit {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) {
+            table.shrink_to_fit()
+        }
+        fn apply_second(mut self, table: &mut Vec<T>) {
+            self.apply_first(table);
+        }
+    }
+
+    struct Truncate {
+        len: usize,
+    }
+
+    impl<'a, T> UpdateTables<'a, Vec<T>, ()> for Truncate {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) {
+            table.truncate(self.len)
+        }
+        fn apply_second(mut self, table: &mut Vec<T>) {
+            self.apply_first(table);
+        }
+    }
+
+    struct SwapRemove {
+        index: usize,
+    }
+
+    impl<'a, T> UpdateTables<'a, Vec<T>, T> for SwapRemove {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) -> T {
+            table.swap_remove(self.index)
+        }
+        fn apply_second(mut self, table: &mut Vec<T>) {
+            self.apply_first(table);
+        }
+    }
+
+    struct Drain<R>
+    where
+        R: 'static + Clone + RangeBounds<usize>,
+    {
+        range: R,
+    }
+
+    impl<'a, T, R> UpdateTables<'a, Vec<T>, std::vec::Drain<'a, T>> for Drain<R>
+    where
+        R: 'static + Clone + RangeBounds<usize>,
+    {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) -> std::vec::Drain<'a, T> {
+            table.drain(self.range.clone())
+        }
+        fn apply_second(self, table: &mut Vec<T>) {
+            table.drain(self.range);
+        }
+    }
+
+    struct Retain<T, F>
+    where
+        F: 'static + Clone + FnMut(&T) -> bool,
+    {
+        f: F,
+        _compile_t: std::marker::PhantomData<fn(*const T)>,
+    }
+
+    impl<'a, T, F> UpdateTables<'a, Vec<T>, ()> for Retain<T, F>
+    where
+        F: 'static + Clone + FnMut(&T) -> bool,
+    {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) {
+            table.retain(self.f.clone())
+        }
+        fn apply_second(self, table: &mut Vec<T>) {
+            table.retain(self.f)
+        }
+    }
+
     impl<'w, 'a, T> WriteGuard<'w, T>
     where
         T: 'static + Clone + Send,
     {
         pub fn push(&'a mut self, value: T) {
-            struct Push<T> {
-                value: T,
-            }
-
-            impl<'a, T> UpdateTables<'a, Vec<T>, ()> for Push<T>
-            where
-                T: Clone,
-            {
-                fn apply_first(&mut self, table: &'a mut Vec<T>) {
-                    table.push(self.value.clone());
-                }
-                fn apply_second(self, table: &mut Vec<T>) {
-                    table.push(self.value); // Move the value instead of cloning.
-                }
-            }
-
             self.guard.update_tables(Push { value })
         }
 
         pub fn insert(&'a mut self, index: usize, element: T) {
-            struct Insert<T> {
-                index: usize,
-                element: T,
-            }
-
-            impl<'a, T> UpdateTables<'a, Vec<T>, ()> for Insert<T>
-            where
-                T: Clone,
-            {
-                fn apply_first(&mut self, table: &'a mut Vec<T>) {
-                    table.insert(self.index, self.element.clone())
-                }
-                fn apply_second(self, table: &mut Vec<T>) {
-                    // Move the value instead of cloning.
-                    table.insert(self.index, self.element)
-                }
-            }
-
             self.guard.update_tables(Insert { index, element })
         }
     }
 
     impl<'w, T> WriteGuard<'w, T> {
         pub fn clear(&mut self) {
-            struct Clear {}
-
-            impl<'a, T> UpdateTables<'a, Vec<T>, ()> for Clear {
-                fn apply_first(&mut self, table: &mut Vec<T>) {
-                    table.clear()
-                }
-                fn apply_second(mut self, table: &mut Vec<T>) {
-                    self.apply_first(table);
-                }
-            }
-
             self.guard.update_tables(Clear {})
         }
         pub fn pop(&mut self) -> Option<T> {
-            struct Pop {}
-
-            impl<'a, T> UpdateTables<'a, Vec<T>, Option<T>> for Pop {
-                fn apply_first(&mut self, table: &'a mut Vec<T>) -> Option<T> {
-                    table.pop()
-                }
-                fn apply_second(mut self, table: &mut Vec<T>) {
-                    self.apply_first(table);
-                }
-            }
-
             self.guard.update_tables(Pop {})
         }
 
         pub fn reserve(&mut self, additional: usize) {
-            struct Reserve {
-                additional: usize,
-            }
-
-            impl<'a, T> UpdateTables<'a, Vec<T>, ()> for Reserve {
-                fn apply_first(&mut self, table: &'a mut Vec<T>) {
-                    table.reserve(self.additional)
-                }
-                fn apply_second(mut self, table: &mut Vec<T>) {
-                    self.apply_first(table);
-                }
-            }
-
             self.guard.update_tables(Reserve { additional })
         }
 
         pub fn reserve_exact(&mut self, additional: usize) {
-            struct ReserveExact {
-                additional: usize,
-            }
-
-            impl<'a, T> UpdateTables<'a, Vec<T>, ()> for ReserveExact {
-                fn apply_first(&mut self, table: &'a mut Vec<T>) {
-                    table.reserve(self.additional)
-                }
-                fn apply_second(mut self, table: &mut Vec<T>) {
-                    self.apply_first(table);
-                }
-            }
-
             self.guard.update_tables(ReserveExact { additional })
         }
 
         pub fn shrink_to_fit(&mut self) {
-            struct ShrinkToFit {}
-
-            impl<'a, T> UpdateTables<'a, Vec<T>, ()> for ShrinkToFit {
-                fn apply_first(&mut self, table: &'a mut Vec<T>) {
-                    table.shrink_to_fit()
-                }
-                fn apply_second(mut self, table: &mut Vec<T>) {
-                    self.apply_first(table);
-                }
-            }
-
             self.guard.update_tables(ShrinkToFit {})
         }
 
         pub fn truncate(&mut self, len: usize) {
-            struct Truncate {
-                len: usize,
-            }
-
-            impl<'a, T> UpdateTables<'a, Vec<T>, ()> for Truncate {
-                fn apply_first(&mut self, table: &'a mut Vec<T>) {
-                    table.truncate(self.len)
-                }
-                fn apply_second(mut self, table: &mut Vec<T>) {
-                    self.apply_first(table);
-                }
-            }
-
             self.guard.update_tables(Truncate { len })
         }
 
         pub fn swap_remove(&mut self, index: usize) -> T {
-            struct SwapRemove {
-                index: usize,
-            }
-
-            impl<'a, T> UpdateTables<'a, Vec<T>, T> for SwapRemove {
-                fn apply_first(&mut self, table: &'a mut Vec<T>) -> T {
-                    table.swap_remove(self.index)
-                }
-                fn apply_second(mut self, table: &mut Vec<T>) {
-                    self.apply_first(table);
-                }
-            }
-
             self.guard.update_tables(SwapRemove { index })
         }
     }
@@ -173,25 +212,6 @@ pub mod vec {
         where
             R: 'static + Clone + Send + RangeBounds<usize>,
         {
-            struct Drain<R>
-            where
-                R: 'static + Clone + RangeBounds<usize>,
-            {
-                range: R,
-            }
-
-            impl<'a, T, R> UpdateTables<'a, Vec<T>, std::vec::Drain<'a, T>> for Drain<R>
-            where
-                R: 'static + Clone + RangeBounds<usize>,
-            {
-                fn apply_first(&mut self, table: &'a mut Vec<T>) -> std::vec::Drain<'a, T> {
-                    table.drain(self.range.clone())
-                }
-                fn apply_second(self, table: &mut Vec<T>) {
-                    table.drain(self.range);
-                }
-            }
-
             self.guard.update_tables(Drain { range })
         }
     }
@@ -201,26 +221,6 @@ pub mod vec {
         where
             F: 'static + Clone + Send + FnMut(&T) -> bool,
         {
-            struct Retain<T, F>
-            where
-                F: 'static + Clone + FnMut(&T) -> bool,
-            {
-                f: F,
-                _compile_t: std::marker::PhantomData<fn(*const T)>,
-            }
-
-            impl<'a, T, F> UpdateTables<'a, Vec<T>, ()> for Retain<T, F>
-            where
-                F: 'static + Clone + FnMut(&T) -> bool,
-            {
-                fn apply_first(&mut self, table: &'a mut Vec<T>) {
-                    table.retain(self.f.clone())
-                }
-                fn apply_second(self, table: &mut Vec<T>) {
-                    table.retain(self.f)
-                }
-            }
-
             self.guard.update_tables(Retain {
                 f,
                 _compile_t: std::marker::PhantomData::<fn(*const T)>,
