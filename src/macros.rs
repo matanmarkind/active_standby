@@ -162,5 +162,15 @@ macro_rules! generate_aslock_handle {
                 AsLockHandle { writer, reader }
             }
         }
+
+        impl$(<$($Inner),*>)? std::fmt::Debug for AsLockHandle$(<$($Inner),*>)?
+            where $Table$(<$($Inner),*>)? : std::fmt::Debug,
+        {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.debug_struct("AsLockHandle")
+                    .field("reader", &self.read())
+                    .finish()
+            }
+        }
     }
 }

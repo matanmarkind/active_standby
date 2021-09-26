@@ -414,7 +414,7 @@ impl<'w, T> std::ops::Deref for SendWriteGuard<'w, T> {
 #[derive(Debug)]
 pub struct SyncWriter<T> {
     // Used to lock 'write'. We can't use Mutex<Writer> because then locking
-    // would return MutegGuard<Writer>. Then if we try to crete a WriteGuard,
+    // would return MutexGuard<Writer>. Then if we try to crete a WriteGuard,
     // this would create a struct that refers to itself. Instead we use the C++
     // style unique_lock, to guard 'writer'.
     mtx: Mutex<()>,

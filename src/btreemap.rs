@@ -237,4 +237,17 @@ mod test {
         assert_eq!(*table.write(), expected);
         assert_eq!(*table.read(), expected);
     }
+
+    #[test]
+    fn debug_str() {
+        let table = AsLockHandle::<i32, i32>::default();
+        {
+            table.write().insert(12, -1);
+        }
+
+        assert_eq!(
+            format!("{:?}", table),
+            "AsLockHandle { reader: ReadGuard { active_table: {12: -1} } }",
+        );
+    }
 }

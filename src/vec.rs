@@ -463,4 +463,17 @@ mod test {
         assert_eq!(*table.write(), vec![1]);
         assert_eq!(*table.read(), vec![1]);
     }
+
+    #[test]
+    fn debug_str() {
+        let table = AsLockHandle::<i32>::default();
+        {
+            table.write().push(12);
+        }
+
+        assert_eq!(
+            format!("{:?}", table),
+            "AsLockHandle { reader: ReadGuard { active_table: [12] } }",
+        );
+    }
 }

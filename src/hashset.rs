@@ -348,4 +348,17 @@ mod test {
         assert!(table.write().is_empty());
         assert!(table.read().is_empty());
     }
+
+    #[test]
+    fn debug_str() {
+        let table = AsLockHandle::<i32>::default();
+        {
+            table.write().insert(12);
+        }
+
+        assert_eq!(
+            format!("{:?}", table),
+            "AsLockHandle { reader: ReadGuard { active_table: {12} } }",
+        );
+    }
 }
