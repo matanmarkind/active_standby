@@ -165,15 +165,15 @@ pub mod vec {
         }
     }
 
-    impl<'w, 'a, T> WriteGuard<'w, T>
+    impl<'w, T> WriteGuard<'w, T>
     where
         T: 'static + Clone + Send,
     {
-        pub fn push(&'a mut self, value: T) {
+        pub fn push(&mut self, value: T) {
             self.guard.update_tables(Push { value })
         }
 
-        pub fn insert(&'a mut self, index: usize, element: T) {
+        pub fn insert(&mut self, index: usize, element: T) {
             self.guard.update_tables(Insert { index, element })
         }
     }
