@@ -35,7 +35,7 @@ mod loom_tests {
                 wg.update_tables(AddOne {});
             }
 
-            let mut reader = writer.new_reader();
+            let reader = writer.new_reader();
             let val = thread::spawn(move || *reader.read()).join().unwrap();
 
             {
@@ -45,7 +45,7 @@ mod loom_tests {
 
             assert_eq!(val, 2);
 
-            let mut reader = writer.new_reader();
+            let reader = writer.new_reader();
             let val = thread::spawn(move || *reader.read()).join().unwrap();
             assert_eq!(val, 3);
         });
@@ -60,7 +60,7 @@ mod loom_tests {
                 wg.update_tables(AddOne {});
             }
 
-            let mut reader = writer.new_reader();
+            let reader = writer.new_reader();
             let writer_handle = thread::spawn(move || {
                 {
                     let mut wg = writer.write();
@@ -71,7 +71,7 @@ mod loom_tests {
                 wg.update_tables(SetZero {});
             });
 
-            let mut reader2 = reader.clone();
+            let reader2 = reader.clone();
             let reader_handle = thread::spawn(move || {
                 assert_eq!(*reader2.read() % 2, 0);
             });
