@@ -116,10 +116,10 @@ macro_rules! generate_aslock_handle {
             reader: $crate::primitives::Reader<$Table$(<$($Inner),*>)?>,
         }
 
-        impl$(<$($Inner),*>)? AsLockHandle$(<$($Inner),*>)?
+        impl$(<$($Inner),*>)? Default for AsLockHandle$(<$($Inner),*>)?
             where $Table$(<$($Inner),*>)? : Default,
         {
-            pub fn default() -> AsLockHandle$(<$($Inner),*>)? {
+            fn default() -> AsLockHandle$(<$($Inner),*>)? {
                 Self::from_identical($Table::default(), $Table::default())
             }
         }
