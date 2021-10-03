@@ -102,7 +102,7 @@ pub struct Writer<T> {
     /// waiting until the next time a WriteGuard is created, we give the readers
     /// time to switch to reading from the new active_table.
     ///
-    /// Note that this is why Writer isn't Send, but we offer SendWriter as an
+    /// Note that this is why Writer isn't Send, but we offer SyncWriter as an
     /// easy alternative.
     ops_to_replay: Vec<Box<dyn FnOnce(&mut T)>>,
 
@@ -330,87 +330,15 @@ impl<'w, T: fmt::Debug> fmt::Debug for WriteGuard<'w, T> {
     }
 }
 
-/// SendWriter is a wrapper around Writer that is able to be sent across
+/// SyncWriter is a wrapper around Writer that can be send and shared across
 /// threads.
 ///
-/// The only difference between SendWriter and Writer is that update_tables
-/// requires that the update passed in be Send.
+/// Send - SyncWriter implements Send when T is Send by enfocing that all
+/// updates passed to the table are themselves Send. This is required because
+/// apply_second may be called from another thread.
 ///
-/// For examples with SendWriter check out the tests in the collections module.
-#[derive(Debug)]
-pub struct SendWriter<T> {
-    writer: Writer<T>,
-}
-
-impl<T> SendWriter<T>
-where
-    T: Clone,
-{
-    pub fn new(t: T) -> SendWriter<T> {
-        Self::from_identical(t.clone(), t)
-    }
-}
-
-impl<T> SendWriter<T>
-where
-    T: Default,
-{
-    pub fn default() -> SendWriter<T> {
-        Self::from_identical(T::default(), T::default())
-    }
-}
-
-impl<T> SendWriter<T> {
-    pub fn from_identical(t1: T, t2: T) -> SendWriter<T> {
-        SendWriter {
-            writer: Writer::from_identical(t1, t2),
-        }
-    }
-    pub fn write(&mut self) -> SendWriteGuard<'_, T> {
-        SendWriteGuard {
-            guard: self.writer.write(),
-        }
-    }
-}
-
-impl<T> std::ops::Deref for SendWriter<T> {
-    type Target = Writer<T>;
-    fn deref(&self) -> &Self::Target {
-        &self.writer
-    }
-}
-
-/// Writer is made of 2 components.
-/// - Arc<Tables> which is Send + Sync if T is Send.
-/// - Vec<Updates> which is Send if the updates are.
-///
-/// We enforce that all updates passed to a SendWriteGuard are Send, so
-/// therefore SendWriter is Send if T is.
-unsafe impl<T> Send for SendWriter<T> where T: Send {}
-
-/// Guard for a SendWriter, not a WriteGuard that is Send.
-///
-/// Same as a WriteGuard, but update_tables requires that updates are Send.
-pub struct SendWriteGuard<'w, T> {
-    guard: WriteGuard<'w, T>,
-}
-
-impl<'w, T> SendWriteGuard<'w, T> {
-    pub fn update_tables<'a, R>(
-        &'a mut self,
-        update: impl UpdateTables<'a, T, R> + 'static + Sized + Send,
-    ) -> R {
-        self.guard.update_tables(update)
-    }
-}
-
-impl<'w, T> std::ops::Deref for SendWriteGuard<'w, T> {
-    type Target = T;
-    fn deref(&self) -> &Self::Target {
-        &*self.guard
-    }
-}
-
+/// Sync - SyncWriter enforces that being Sync by manually enforcing that only 1
+/// WriteGuard can be created at a time with a Mutex.
 #[derive(Debug)]
 pub struct SyncWriter<T> {
     // Used to lock 'write'. We can't use Mutex<Writer> because then locking
@@ -420,7 +348,7 @@ pub struct SyncWriter<T> {
     mtx: Mutex<()>,
 
     // UnsafeCell is used for interior mutability.
-    writer: UnsafeCell<SendWriter<T>>,
+    writer: UnsafeCell<Writer<T>>,
 }
 
 impl<T> SyncWriter<T>
@@ -445,7 +373,7 @@ impl<T> SyncWriter<T> {
     pub fn from_identical(t1: T, t2: T) -> SyncWriter<T> {
         SyncWriter {
             mtx: Mutex::new(()),
-            writer: UnsafeCell::new(SendWriter::from_identical(t1, t2)),
+            writer: UnsafeCell::new(Writer::from_identical(t1, t2)),
         }
     }
 
@@ -467,6 +395,15 @@ impl<T> SyncWriter<T> {
     }
 }
 
+
+/// Writer is made of 2 components.
+/// - Arc<Tables> which is Send + Sync if T is Send.
+/// - Vec<Updates> which is Send if the updates are.
+///
+/// We enforce that all updates passed to a SyncWriteGuard are Send, so
+/// therefore SyncWriter is Send if T is.
+unsafe impl<T> Send for SyncWriter<T> where T: Send {}
+
 /// We enforce Sync by making sure that the WriteGuard only exists whent he
 /// MutexGuard exists.
 unsafe impl<T> Sync for SyncWriter<T> where SyncWriter<T>: Send {}
@@ -476,7 +413,7 @@ unsafe impl<T> Sync for SyncWriter<T> where SyncWriter<T>: Send {}
 /// Same as a WriteGuard, but update_tables requires that updates are Send.
 pub struct SyncWriteGuard<'w, T> {
     _mtx_guard: Option<MutexGuard<'w, ()>>,
-    write_guard: Option<UnsafeCell<SendWriteGuard<'w, T>>>,
+    write_guard: Option<UnsafeCell<WriteGuard<'w, T>>>,
 }
 
 impl<'w, T> std::ops::Deref for SyncWriteGuard<'w, T> {
