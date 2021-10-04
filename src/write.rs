@@ -395,7 +395,6 @@ impl<T> SyncWriter<T> {
     }
 }
 
-
 /// Writer is made of 2 components.
 /// - Arc<Tables> which is Send + Sync if T is Send.
 /// - Vec<Updates> which is Send if the updates are.

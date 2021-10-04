@@ -100,6 +100,7 @@
 mod macros;
 
 mod read;
+mod shareable_table;
 mod table;
 mod types;
 mod write;

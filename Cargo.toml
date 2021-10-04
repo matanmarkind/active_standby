@@ -12,6 +12,7 @@ repository = "https://github.com/matanmarkind/active_standby"
 [dependencies]
 slab = "0.4.3"
 more-asserts = "0.2.1"
+crossbeam = "0.8.1"
 
 [dev-dependencies]
 maplit = "1.0.2"
