@@ -21,7 +21,7 @@
 ///
 /// ```
 /// pub mod aslock {
-///     use active_standby::primitives::lockless::UpdateTables;
+///     use active_standby::primitives::UpdateTables;
 ///
 ///     // Generate an AsLockHandle, which will give wait free read accees
 ///     // to the underlying data. This also generates the associated WriteGuard

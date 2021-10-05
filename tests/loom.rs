@@ -4,7 +4,8 @@
 #[cfg(loom)]
 #[cfg(test)]
 mod loom_tests {
-    use active_standby::primitives::*;
+    use active_standby::primitives::lockless::{SyncWriter, Writer};
+    use active_standby::primitives::UpdateTables;
     use loom::thread;
 
     struct AddOne {}
@@ -29,7 +30,7 @@ mod loom_tests {
     #[test]
     fn single_thread() {
         loom::model(|| {
-            let mut writer = SendWriter::<i32>::new(1);
+            let mut writer = SyncWriter::<i32>::new(1);
             {
                 let mut wg = writer.write();
                 wg.update_tables(AddOne {});
@@ -54,7 +55,7 @@ mod loom_tests {
     #[test]
     fn multi_thread() {
         loom::model(|| {
-            let mut writer = SendWriter::<i32>::new(1);
+            let mut writer = SyncWriter::<i32>::new(1);
             {
                 let mut wg = writer.write();
                 wg.update_tables(AddOne {});

@@ -211,7 +211,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use super::hashset::*;
+    use super::*;
     use maplit::*;
     use more_asserts::*;
 

@@ -16,7 +16,8 @@
 // are using rust 2018.
 // https://doc.rust-lang.org/nightly/edition-guide/rust-2018/module-system/path-clarity.html
 extern crate test;
-use active_standby::primitives::*;
+use active_standby::primitives::lockless::{SyncWriter, Writer};
+use active_standby::primitives::UpdateTables;
 use more_asserts::*;
 
 struct AddOne {}
@@ -126,7 +127,7 @@ fn read_guard_read_contention(b: &mut test::bench::Bencher) {
 // but many other readers.
 #[bench]
 fn read_guard_write_contention(b: &mut test::bench::Bencher) {
-    let mut writer = SendWriter::<i32>::new(1);
+    let mut writer = SyncWriter::<i32>::new(1);
     let mut reader = writer.new_reader();
     let _writer_handle = std::thread::spawn(move || loop {
         let mut wg = writer.write();
@@ -143,7 +144,7 @@ fn read_guard_write_contention(b: &mut test::bench::Bencher) {
 // but many other readers.
 #[bench]
 fn read_guard_writehold_contention(b: &mut test::bench::Bencher) {
-    let mut writer = SendWriter::<i32>::new(1);
+    let mut writer = SyncWriter::<i32>::new(1);
     let mut reader = writer.new_reader();
     let _writer_handle = std::thread::spawn(move || loop {
         let mut wg = writer.write();
@@ -215,7 +216,7 @@ fn aslock_readwrite_contention_20(b: &mut test::bench::Bencher) {
 // The main test, since our core guarantee is that reads are always wait free
 // regardless of read and write usage.
 fn read_guard_readwrite_contention(b: &mut test::bench::Bencher, num_readers: u32) {
-    let mut writer = SendWriter::<i32>::new(1);
+    let mut writer = SyncWriter::<i32>::new(1);
     let mut reader = writer.new_reader();
     let _reader_handles: Vec<_> = (0..num_readers)
         .map(|_| {

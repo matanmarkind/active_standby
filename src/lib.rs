@@ -98,10 +98,10 @@
 //! with the incremented value.
 
 mod macros;
+mod types;
 
 mod lockless;
 mod shared;
-mod types;
 pub mod primitives {
     pub use crate::types::UpdateTables;
     pub mod lockless {

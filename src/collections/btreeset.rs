@@ -145,7 +145,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use super::btreeset::*;
+    use super::*;
     use maplit::*;
 
     #[test]

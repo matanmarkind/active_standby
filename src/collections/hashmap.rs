@@ -193,7 +193,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use super::hashmap::*;
+    use super::*;
     use maplit::*;
     use more_asserts::*;
 

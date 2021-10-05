@@ -229,7 +229,7 @@ impl<'w, T: 'static> WriteGuard<'w, T> {
 
 #[cfg(test)]
 mod test {
-    use super::vec::*;
+    use super::*;
 
     #[test]
     fn push() {
