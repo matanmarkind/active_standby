@@ -21,7 +21,7 @@
 ///
 /// ```
 /// pub mod aslock {
-///     use active_standby::primitives::UpdateTables;
+///     use active_standby::primitives::lockless::UpdateTables;
 ///
 ///     // Generate an AsLockHandle, which will give wait free read accees
 ///     // to the underlying data. This also generates the associated WriteGuard
@@ -76,7 +76,7 @@ macro_rules! generate_aslock_handle {
         >)?
     ) => {
         struct Writer$(< $($Inner),* >)? {
-            writer: $crate::primitives::SyncWriter<$Table $(< $($Inner),* >)? >,
+            writer: $crate::primitives::lockless::SyncWriter<$Table $(< $($Inner),* >)? >,
         }
 
         impl$(< $($Inner),* >)? Writer$(< $($Inner),* >)? {
@@ -85,7 +85,7 @@ macro_rules! generate_aslock_handle {
                 t2: $Table $(< $($Inner),* >)?
             ) -> Writer$(< $($Inner),* >)? {
                 Writer {
-                    writer: $crate::primitives::SyncWriter::from_identical(t1, t2),
+                    writer: $crate::primitives::lockless::SyncWriter::from_identical(t1, t2),
                 }
             }
 
@@ -95,13 +95,13 @@ macro_rules! generate_aslock_handle {
                 }
             }
 
-            pub fn new_reader(&self) -> $crate::primitives::Reader<$Table $(< $($Inner),* >)?> {
+            pub fn new_reader(&self) -> $crate::primitives::lockless::Reader<$Table $(< $($Inner),* >)?> {
                 self.writer.new_reader()
             }
         }
 
         pub struct WriteGuard<'w, $($($Inner),*)?> {
-            guard: $crate::primitives::SyncWriteGuard<'w, $Table $(< $($Inner),* >)?>,
+            guard: $crate::primitives::lockless::SyncWriteGuard<'w, $Table $(< $($Inner),* >)?>,
         }
 
         impl<'w, $($($Inner),*)?> std::ops::Deref for WriteGuard<'w, $($($Inner),*)?> {
@@ -113,7 +113,7 @@ macro_rules! generate_aslock_handle {
 
         pub struct AsLockHandle$(<$($Inner),*>)? {
             writer: std::sync::Arc<Writer$(<$($Inner),*>)?>,
-            reader: $crate::primitives::Reader<$Table$(<$($Inner),*>)?>,
+            reader: $crate::primitives::lockless::Reader<$Table$(<$($Inner),*>)?>,
         }
 
         impl$(<$($Inner),*>)? Default for AsLockHandle$(<$($Inner),*>)?
@@ -150,7 +150,7 @@ macro_rules! generate_aslock_handle {
 
             // Mutable because we do not want AsLock being shared between threads.
             // Clone a new lock to be sent to the other thread.
-            pub fn read(&self) -> $crate::primitives::ReadGuard<'_, $Table$(<$($Inner),*>)?> {
+            pub fn read(&self) -> $crate::primitives::lockless::ReadGuard<'_, $Table$(<$($Inner),*>)?> {
                 self.reader.read()
             }
         }

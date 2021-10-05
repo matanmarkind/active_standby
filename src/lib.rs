@@ -99,30 +99,20 @@
 
 mod macros;
 
-mod read;
-mod shareable_table;
-mod table;
+mod lockless;
+mod shared;
 mod types;
-mod write;
 pub mod primitives {
-    pub use crate::read::{ReadGuard, Reader};
-    pub use crate::write::{SyncWriteGuard, SyncWriter, UpdateTables, WriteGuard, Writer};
+    pub use crate::types::UpdateTables;
+    pub mod lockless {
+        pub use crate::lockless::read::{ReadGuard, Reader};
+        pub use crate::lockless::write::{SyncWriteGuard, SyncWriter, WriteGuard, Writer};
+    }
+    // pub use crate::shared;
 }
-
-mod btreemap;
-mod btreeset;
-mod hashmap;
-mod hashset;
-mod vec;
 
 /// AsLockHandle's for common collections. Each table type has its own
 /// AsLockHandle, as opposed to RwLock where you simply pass in the table. This
 /// is because of the 2 tables, which require being synchronized, and therefore
-/// updated through the UpdateTables trait, instead of directly.
-pub mod collections {
-    pub use crate::btreemap::btreemap;
-    pub use crate::btreeset::btreeset;
-    pub use crate::hashmap::hashmap;
-    pub use crate::hashset::hashset;
-    pub use crate::vec::vec;
-}
+/// are updated through the UpdateTables trait, instead of directly.
+pub mod collections;

@@ -5,29 +5,29 @@ pub type RwLock<T> = crossbeam::sync::ShardedLock<T>;
 pub type RwLockReadGuard<'r, T> = crossbeam::sync::ShardedLockReadGuard<'r, T>;
 pub type RwLockWriteGuard<'w, T> = crossbeam::sync::ShardedLockWriteGuard<'w, T>;
 
-pub struct SharedTable<T> {
+pub struct Table<T> {
     is_table0_active: RwLock<bool>,
     write_lock: Mutex<()>,
     table0: RwLock<T>,
     table1: RwLock<T>,
 }
 
-pub struct SharedTableWriteGuard<'w, T> {
+pub struct TableWriteGuard<'w, T> {
     is_table0_active: &'w RwLock<bool>,
     write_guard: MutexGuard<'w, ()>,
     standby_table: RwLockWriteGuard<'w, T>,
 }
 
-impl<T> SharedTable<T> {
-    pub fn new(t: T) -> SharedTable<T>
+impl<T> Table<T> {
+    pub fn new(t: T) -> Table<T>
     where
         T: Clone,
     {
-        SharedTable::from_identical(t.clone(), t)
+        Table::from_identical(t.clone(), t)
     }
 
-    pub fn from_identical(t1: T, t2: T) -> SharedTable<T> {
-        SharedTable {
+    pub fn from_identical(t1: T, t2: T) -> Table<T> {
+        Table {
             is_table0_active: RwLock::new(true),
             write_lock: Mutex::default(),
             table0: RwLock::new(t1),
@@ -73,12 +73,22 @@ impl<T> SharedTable<T> {
         active_table
     }
 
-    pub fn write(&self) -> SharedTableWriteGuard<'_, T> {
+    pub fn write(&self) -> TableWriteGuard<'_, T> {
         // Use write_guard to make sure that calls to 'write' are single
         // threaded. This keeps writers from interacting with readers other than
         // when waiting on readers to drop a pre-existing guard to the new
         // standby table.
         let write_guard = self.write_lock.lock().unwrap();
+
+        // We don't need to worry about the RwLock being fair:
+        // - Only 1 WriteGuard can exist at a time, and when it updates the
+        //   active and standby tables, this is done while write locking
+        //   `is_table0_active`.
+        // - Any reader that would attempt to gain access to what at this point
+        //   is considered the standby table, must already hold a read lock to
+        //   the table before we attempt to write lock it.
+        // - Therefore this write lock will only contend with pre-existing read
+        //   guards, never incoming attempts to read lock.
         let standby_table;
         if *self.is_table0_active.read().unwrap() {
             standby_table = self.table1.write().unwrap();
@@ -86,7 +96,7 @@ impl<T> SharedTable<T> {
             standby_table = self.table0.write().unwrap();
         }
 
-        SharedTableWriteGuard {
+        TableWriteGuard {
             is_table0_active: &self.is_table0_active,
             write_guard,
             standby_table,
@@ -94,8 +104,11 @@ impl<T> SharedTable<T> {
     }
 }
 
-impl<T> SharedTableWriteGuard<'_, T> {
+impl<T> TableWriteGuard<'_, T> {
     /// Call when dropping the write guard.
+    ///
+    /// Ideally this would be implemented as Drop, but wasn't working for some
+    /// unknown reason.
     pub fn swap_active_and_standby(&mut self) {
         let mut guard = self.is_table0_active.write().unwrap();
         *guard = !(*guard);
@@ -103,7 +116,7 @@ impl<T> SharedTableWriteGuard<'_, T> {
 }
 
 // TODO: consider adding "T: ?Sized" like std::sync::RwLock.
-impl<'w, T> std::ops::Deref for SharedTableWriteGuard<'w, T> {
+impl<'w, T> std::ops::Deref for TableWriteGuard<'w, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -111,15 +124,15 @@ impl<'w, T> std::ops::Deref for SharedTableWriteGuard<'w, T> {
     }
 }
 
-impl<'w, T> std::ops::DerefMut for SharedTableWriteGuard<'w, T> {
+impl<'w, T> std::ops::DerefMut for TableWriteGuard<'w, T> {
     fn deref_mut(&mut self) -> &mut T {
         &mut *self.standby_table
     }
 }
 
-impl<'w, T: fmt::Debug> fmt::Debug for SharedTableWriteGuard<'w, T> {
+impl<'w, T: fmt::Debug> fmt::Debug for TableWriteGuard<'w, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SharedTableWriteGuard")
+        f.debug_struct("TableWriteGuard")
             .field("standby_table", unsafe { &*self.standby_table })
             .finish()
     }
@@ -130,8 +143,8 @@ mod test {
     use super::*;
 
     #[test]
-    fn shared_table() {
-        let table = SharedTable::new(5);
+    fn table() {
+        let table = Table::new(5);
 
         {
             let mut wg = table.write();

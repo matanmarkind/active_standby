@@ -1,4 +1,4 @@
-use crate::table::Table;
+use crate::lockless::table::Table;
 use crate::types::*;
 use slab::Slab;
 use std::fmt;
@@ -9,8 +9,9 @@ use std::fmt;
 pub type ReaderEpochs = Arc<Mutex<Slab<Arc<AtomicUsize>>>>;
 
 /// Class used to obtain read guards to the underlying table. Obtaining a
-/// ReadGuard should never suffer contention since the active table is promised
-/// to never have a write guard.
+/// ReadGuard should never suffer contention since it simple dereferences a
+/// pointer to the active table, relying on the writer to manage
+/// synchronization.
 pub struct Reader<T> {
     // Allows the Reader to generate new readers, and remove itself from the list on drop.
     readers: ReaderEpochs,
@@ -81,7 +82,7 @@ impl<T> Reader<T> {
         // The reader must update the epoch before taking the table. This
         // effectively locks the active_table, making it safe for the reader to
         // proceed knowing that the Writer will not be able to access this table
-        // until epoch is implemented again.
+        // until epoch is incremented again.
         fence(Ordering::SeqCst);
 
         ReadGuard {
