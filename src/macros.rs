@@ -142,14 +142,10 @@ macro_rules! generate_aslock_handle {
                 AsLockHandle { writer, reader }
             }
 
-            // Mutable because we do not want AsLock being shared between threads.
-            // Clone a new lock to be sent to the other thread.
             pub fn write(&self) -> WriteGuard<'_, $($($Inner),*)?>  {
                 self.writer.write()
             }
 
-            // Mutable because we do not want AsLock being shared between threads.
-            // Clone a new lock to be sent to the other thread.
             pub fn read(&self) -> $crate::primitives::lockless::ReadGuard<'_, $Table$(<$($Inner),*>)?> {
                 self.reader.read()
             }

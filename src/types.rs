@@ -5,6 +5,12 @@ pub(crate) use loom::sync::{Arc, Mutex, MutexGuard};
 #[cfg(loom)]
 pub(crate) use loom::thread::yield_now;
 #[cfg(loom)]
+pub type RwLock<T> = loom::sync::RwLock<T>;
+#[cfg(loom)]
+pub type RwLockReadGuard<'r, T> = loom::sync::RwLockReadGuard<'r, T>;
+#[cfg(loom)]
+pub type RwLockWriteGuard<'w, T> = loom::sync::RwLockWriteGuard<'w, T>;
+#[cfg(loom)]
 pub(crate) fn fence(ord: Ordering) {
     if let Ordering::Acquire = ord {
     } else {
@@ -24,6 +30,12 @@ pub(crate) use std::sync::atomic::{fence, AtomicPtr, AtomicUsize, Ordering};
 pub(crate) use std::sync::{Arc, Mutex, MutexGuard};
 #[cfg(not(loom))]
 pub(crate) use std::thread::yield_now;
+#[cfg(not(loom))]
+pub type RwLock<T> = crossbeam::sync::ShardedLock<T>;
+#[cfg(not(loom))]
+pub type RwLockReadGuard<'r, T> = crossbeam::sync::ShardedLockReadGuard<'r, T>;
+#[cfg(not(loom))]
+pub type RwLockWriteGuard<'w, T> = crossbeam::sync::ShardedLockWriteGuard<'w, T>;
 
 /// Operations that update the data held internally. Users mutate the tables by
 /// implementing this trait for each function to be performed on the tables. For

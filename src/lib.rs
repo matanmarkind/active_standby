@@ -108,7 +108,9 @@ pub mod primitives {
         pub use crate::lockless::read::{ReadGuard, Reader};
         pub use crate::lockless::write::{SyncWriteGuard, SyncWriter, WriteGuard, Writer};
     }
-    // pub use crate::shared;
+    pub mod shared {
+        pub use crate::shared::aslockhandle::*;
+    }
 }
 
 /// AsLockHandle's for common collections. Each table type has its own

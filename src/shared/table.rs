@@ -1,10 +1,6 @@
 use crate::types::*;
 use std::fmt;
 
-pub type RwLock<T> = crossbeam::sync::ShardedLock<T>;
-pub type RwLockReadGuard<'r, T> = crossbeam::sync::ShardedLockReadGuard<'r, T>;
-pub type RwLockWriteGuard<'w, T> = crossbeam::sync::ShardedLockWriteGuard<'w, T>;
-
 pub struct Table<T> {
     is_table0_active: RwLock<bool>,
     write_lock: Mutex<()>,
@@ -104,12 +100,8 @@ impl<T> Table<T> {
     }
 }
 
-impl<T> TableWriteGuard<'_, T> {
-    /// Call when dropping the write guard.
-    ///
-    /// Ideally this would be implemented as Drop, but wasn't working for some
-    /// unknown reason.
-    pub fn swap_active_and_standby(&mut self) {
+impl<T> Drop for TableWriteGuard<'_, T> {
+    fn drop(&mut self) {
         let mut guard = self.is_table0_active.write().unwrap();
         *guard = !(*guard);
     }
@@ -133,7 +125,7 @@ impl<'w, T> std::ops::DerefMut for TableWriteGuard<'w, T> {
 impl<'w, T: fmt::Debug> fmt::Debug for TableWriteGuard<'w, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TableWriteGuard")
-            .field("standby_table", unsafe { &*self.standby_table })
+            .field("standby_table", &*self.standby_table)
             .finish()
     }
 }
