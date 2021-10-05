@@ -1,2 +1,2 @@
-pub mod aslockhandle;
+pub mod aslock;
 mod table;

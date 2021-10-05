@@ -98,7 +98,7 @@
 //! with the incremented value.
 
 mod macros;
-mod types;
+pub mod types;
 
 mod lockless;
 mod shared;
@@ -109,7 +109,7 @@ pub mod primitives {
         pub use crate::lockless::write::{SyncWriteGuard, SyncWriter, WriteGuard, Writer};
     }
     pub mod shared {
-        pub use crate::shared::aslockhandle::*;
+        pub use crate::shared::aslock::{AsLock, WriteGuard};
     }
 }
 

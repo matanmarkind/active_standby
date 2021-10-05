@@ -170,3 +170,76 @@ macro_rules! generate_aslock_handle {
         }
     }
 }
+
+#[macro_export]
+macro_rules! generate_shared_aslock {
+    ( $Table:ident
+        // Table might be a template type.
+        $(<
+            // Any number of inner types.
+            $( $Inner:tt ),*
+        >)?
+    ) => {
+        pub struct AsLock$(< $($Inner),* >)? {
+            lock: $crate::primitives::shared::AsLock<$Table $(< $($Inner),* >)? >,
+        }
+
+        impl$(< $($Inner),* >)? AsLock$(< $($Inner),* >)? {
+            pub fn from_identical(
+                t1: $Table $(< $($Inner),* >)?,
+                t2: $Table $(< $($Inner),* >)?
+            ) -> AsLock$(< $($Inner),* >)? {
+                AsLock {
+                    lock: $crate::primitives::shared::AsLock::from_identical(t1, t2),
+                }
+            }
+
+            pub fn write(&self) -> WriteGuard<'_, $($($Inner),*)?> {
+                WriteGuard {
+                    guard: self.lock.write(),
+                }
+            }
+
+            pub fn read(&self) -> $crate::types::RwLockReadGuard<'_, $Table $(< $($Inner),* >)?> {
+                self.lock.read()
+            }
+        }
+
+        impl$(<$($Inner),*>)? Default for AsLock$(<$($Inner),*>)?
+            where $Table$(<$($Inner),*>)? : Default,
+        {
+            fn default() -> AsLock$(<$($Inner),*>)? {
+                Self::from_identical($Table::default(), $Table::default())
+            }
+        }
+
+        impl$(<$($Inner),*>)? AsLock$(<$($Inner),*>)?
+            where $Table$(<$($Inner),*>)? : Clone,
+        {
+            pub fn new(t: $Table $(< $($Inner),* >)?) -> AsLock$(<$($Inner),*>)? {
+                Self::from_identical(t.clone(), t)
+            }
+        }
+
+        impl$(<$($Inner),*>)? std::fmt::Debug for AsLock$(<$($Inner),*>)?
+            where $Table$(<$($Inner),*>)? : std::fmt::Debug,
+        {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.debug_struct("AsLock")
+                    .field("reader", &self.read())
+                    .finish()
+            }
+        }
+
+        pub struct WriteGuard<'w, $($($Inner),*)?> {
+            guard: $crate::primitives::shared::WriteGuard<'w, $Table $(< $($Inner),* >)?>,
+        }
+
+        impl<'w, $($($Inner),*)?> std::ops::Deref for WriteGuard<'w, $($($Inner),*)?> {
+            type Target = $Table$(< $($Inner),* >)?;
+            fn deref(&self) -> &Self::Target {
+                &*self.guard
+            }
+        }
+    }
+}

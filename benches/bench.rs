@@ -19,6 +19,7 @@ extern crate test;
 use active_standby::primitives::lockless::{SyncWriter, Writer};
 use active_standby::primitives::UpdateTables;
 use more_asserts::*;
+use std::sync::Arc;
 
 struct AddOne {}
 impl<'a> UpdateTables<'a, i32, ()> for AddOne {
@@ -39,7 +40,7 @@ impl<'a> UpdateTables<'a, i32, ()> for SetZero {
     }
 }
 
-pub mod aslock {
+pub mod lockless {
     active_standby::generate_aslock_handle!(i32);
 
     impl<'w> WriteGuard<'w> {
@@ -52,116 +53,22 @@ pub mod aslock {
     }
 }
 
-// Test the speed of acquiring write guards when it never has to wait on readers
-// to release the table.
-#[bench]
-fn write_guard_without_contention(b: &mut test::bench::Bencher) {
-    let mut writer = Writer::<i32>::new(1);
-    b.iter(|| {
-        let mut wg = writer.write();
-        wg.update_tables(AddOne {});
-    });
+pub mod shared {
+    active_standby::generate_shared_aslock!(i32);
+
+    impl<'w> WriteGuard<'w> {
+        pub fn add_one(&mut self) {
+            self.guard.update_tables(super::AddOne {})
+        }
+        pub fn set_zero(&mut self) {
+            self.guard.update_tables(super::SetZero {})
+        }
+    }
 }
 
-// Test the speed of acquiring write guards when there are many readers taking
-// the active_table for short durations.
-#[bench]
-fn write_guard_with_contention(b: &mut test::bench::Bencher) {
-    let mut writer = Writer::<i32>::new(1);
-    let _reader_handles: Vec<_> = (0..4)
-        .map(|_| {
-            let mut reader = writer.new_reader();
-            std::thread::spawn(move || {
-                // Continually grab read guards. We expect that readers can
-                // block the writer, so no point holding the reader for a long
-                // time since that will just slow down the benchmark
-                while *reader.read() != 0 {}
-            })
-        })
-        .collect();
-
-    b.iter(|| {
-        let mut wg = writer.write();
-        wg.update_tables(AddOne {});
-    });
-}
-
-// Test the speed of acquiring the ReadGuard when the writer never takes a guard
-// are there are no other readers.
-#[bench]
-fn read_guard_no_contention(b: &mut test::bench::Bencher) {
-    let writer = Writer::<i32>::new(1);
-    let mut reader = writer.new_reader();
-
-    b.iter(|| {
-        let rg = reader.read();
-        assert_eq!(*rg, 1);
-    });
-}
-
-// Test the speed of acquiring the ReadGuard when there is no writer activity,
-// but many other readers.
-#[bench]
-fn read_guard_read_contention(b: &mut test::bench::Bencher) {
-    let writer = Writer::<i32>::new(1);
-    let _reader_handles: Vec<_> = (0..20)
-        .map(|_| {
-            let mut reader = writer.new_reader();
-            std::thread::spawn(move || {
-                // Continually grab read guards.
-                while *reader.read() != 0 {
-                    std::thread::sleep(std::time::Duration::from_millis(10));
-                }
-            })
-        })
-        .collect();
-
-    let mut reader = writer.new_reader();
-    b.iter(|| {
-        let rg = reader.read();
-        assert_eq!(*rg, 1);
-    });
-}
-
-// Test the speed of acquiring the ReadGuard when there is no writer activity,
-// but many other readers.
-#[bench]
-fn read_guard_write_contention(b: &mut test::bench::Bencher) {
-    let mut writer = SyncWriter::<i32>::new(1);
-    let mut reader = writer.new_reader();
-    let _writer_handle = std::thread::spawn(move || loop {
-        let mut wg = writer.write();
-        wg.update_tables(AddOne {});
-    });
-
-    b.iter(|| {
-        let rg = reader.read();
-        assert_gt!(*rg, 0);
-    });
-}
-
-// Test the speed of acquiring the ReadGuard when there is no writer activity,
-// but many other readers.
-#[bench]
-fn read_guard_writehold_contention(b: &mut test::bench::Bencher) {
-    let mut writer = SyncWriter::<i32>::new(1);
-    let mut reader = writer.new_reader();
-    let _writer_handle = std::thread::spawn(move || loop {
-        let mut wg = writer.write();
-        wg.update_tables(AddOne {});
-
-        // Make the write guard long lived to check if its existence causes the
-        // reader issues. Can help differentiate cache-ing from deadlock when
-        // compared with read_guard_write_contention.
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    });
-
-    b.iter(|| {
-        let rg = reader.read();
-        assert_gt!(*rg, 0);
-    });
-}
-
+// Updating a plain atomic bool gives a reference point for what kind of speeds
+// atomics can achieve. Gives some perspective on the cost we are adding/what a
+// lower bound could be.
 #[bench]
 fn plain_atomicbool(b: &mut test::bench::Bencher) {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -185,15 +92,105 @@ fn plain_atomicbool(b: &mut test::bench::Bencher) {
     });
 }
 
+// Test the speed of acquiring write guards when it never has to wait on readers
+// to release the table.
 #[bench]
-fn aslock_readwrite_contention_20(b: &mut test::bench::Bencher) {
-    let mut table = aslock::AsLockHandle::new(1);
-    let _reader_handles: Vec<_> = (0..20)
+fn lockless_wguard_without_rcontention(b: &mut test::bench::Bencher) {
+    let mut writer = Writer::<i32>::new(1);
+    b.iter(|| {
+        let mut wg = writer.write();
+        wg.update_tables(AddOne {});
+    });
+}
+#[bench]
+fn shared_wguard_without_rcontention(b: &mut test::bench::Bencher) {
+    let table = Arc::new(shared::AsLock::new(1));
+    b.iter(|| {
+        let mut wg = table.write();
+        wg.add_one();
+    });
+}
+
+// Test the speed of acquiring write guards when there are many readers taking
+// the active_table for short durations.
+#[bench]
+fn lockless_wguard_with_contention(b: &mut test::bench::Bencher) {
+    let mut writer = Writer::<i32>::new(1);
+    let _reader_handles: Vec<_> = (0..4)
         .map(|_| {
-            let mut table_clone = table.clone();
+            let reader = writer.new_reader();
+            std::thread::spawn(move || {
+                // Continually grab read guards. We expect that readers can
+                // block the writer, so no point holding the reader for a long
+                // time since that will just slow down the benchmark
+                while *reader.read() != 0 {}
+            })
+        })
+        .collect();
+
+    b.iter(|| {
+        let mut wg = writer.write();
+        wg.update_tables(AddOne {});
+    });
+}
+#[bench]
+fn shared_wguard_with_contention(b: &mut test::bench::Bencher) {
+    let table = Arc::new(shared::AsLock::new(1));
+    let _reader_handles: Vec<_> = (0..4)
+        .map(|_| {
+            let table = Arc::clone(&table);
+            std::thread::spawn(move || {
+                // Continually grab read guards. We expect that readers can
+                // block the writer, so no point holding the reader for a long
+                // time since that will just slow down the benchmark
+                while *table.read() != 0 {}
+            })
+        })
+        .collect();
+
+    b.iter(|| {
+        let mut wg = table.write();
+        wg.add_one();
+    });
+}
+
+// Test the speed of acquiring the ReadGuard when the writer never takes a guard
+// are there are no other readers.
+#[bench]
+fn lockless_rguard_no_contention(b: &mut test::bench::Bencher) {
+    let writer = Writer::<i32>::new(1);
+    let reader = writer.new_reader();
+
+    b.iter(|| {
+        let rg = reader.read();
+        assert_eq!(*rg, 1);
+    });
+}
+#[bench]
+fn shared_rguard_no_contention(b: &mut test::bench::Bencher) {
+    let table = Arc::new(shared::AsLock::new(1));
+
+    b.iter(|| {
+        let rg = table.read();
+        assert_eq!(*rg, 1);
+    });
+}
+
+// The main test, since our core guarantee is that reads are always wait free
+// regardless of read and write usage.
+fn lockless_rguard_rw_contention(
+    b: &mut test::bench::Bencher,
+    num_readers: u32,
+    hold_write_guard: bool,
+) {
+    let table = lockless::AsLockHandle::new(1);
+
+    let _reader_handles: Vec<_> = (0..num_readers)
+        .map(|_| {
+            let table = table.clone();
             std::thread::spawn(move || {
                 // Continually grab read guards.
-                while *table_clone.read() != 0 {
+                while *table.read() != 0 {
                     // Hold the read guards to increase the change of read 'contention'.
                     std::thread::sleep(std::time::Duration::from_micros(100));
                 }
@@ -201,9 +198,12 @@ fn aslock_readwrite_contention_20(b: &mut test::bench::Bencher) {
         })
         .collect();
 
-    let mut table_clone = table.clone();
+    let table2 = table.clone();
     let _writer_handle = std::thread::spawn(move || loop {
-        let mut wg = table_clone.write();
+        let mut wg = table2.write();
+        if hold_write_guard {
+            std::thread::sleep(std::time::Duration::from_micros(100));
+        }
         wg.add_one();
     });
 
@@ -213,55 +213,111 @@ fn aslock_readwrite_contention_20(b: &mut test::bench::Bencher) {
     });
 }
 
-// The main test, since our core guarantee is that reads are always wait free
-// regardless of read and write usage.
-fn read_guard_readwrite_contention(b: &mut test::bench::Bencher, num_readers: u32) {
-    let mut writer = SyncWriter::<i32>::new(1);
-    let mut reader = writer.new_reader();
+fn shared_rguard_rw_contention(
+    b: &mut test::bench::Bencher,
+    num_readers: u32,
+    hold_write_guard: bool,
+) {
+    let aslock = Arc::new(shared::AsLock::new(1));
     let _reader_handles: Vec<_> = (0..num_readers)
         .map(|_| {
-            let mut reader = writer.new_reader();
+            let aslock = Arc::clone(&aslock);
             std::thread::spawn(move || {
                 // Continually grab read guards.
-                while *reader.read() != 0 {
+                while *aslock.read() != 0 {
                     // Hold the read guards to increase the change of read 'contention'.
                     std::thread::sleep(std::time::Duration::from_micros(100));
                 }
             })
         })
         .collect();
+    let aslock2 = Arc::clone(&aslock);
     let _writer_handle = std::thread::spawn(move || loop {
-        let mut wg = writer.write();
-        wg.update_tables(AddOne {});
+        let mut wg = aslock2.write();
+        if hold_write_guard {
+            std::thread::sleep(std::time::Duration::from_micros(100));
+        }
+        wg.add_one();
     });
 
     b.iter(|| {
-        let rg = reader.read();
+        let rg = aslock.read();
         assert_gt!(*rg, 0);
     });
 }
 
+// The following section is the main thing we are interested in; how does
+// retreiving a read guard to the tables scale with lots of other readers and an
+// active writer. The tests are broken down as follows:
+// - lockless v. shared
+// - writer spinning (constantly write locking and releasing) v. writer grabbing
+//   and holding a write guard for 100us.
+// - num read threads
+
 #[bench]
-fn read_guard_readwrite_contention_1(b: &mut test::bench::Bencher) {
-    read_guard_readwrite_contention(b, 1);
+fn lockless_rguard_rw_contention_1(b: &mut test::bench::Bencher) {
+    lockless_rguard_rw_contention(b, 1, true);
+}
+#[bench]
+fn lockless_rguard_rw_contention_10(b: &mut test::bench::Bencher) {
+    lockless_rguard_rw_contention(b, 10, true);
+}
+#[bench]
+fn lockless_rguard_rw_contention_20(b: &mut test::bench::Bencher) {
+    lockless_rguard_rw_contention(b, 20, true);
+}
+#[bench]
+fn lockless_rguard_rw_contention_30(b: &mut test::bench::Bencher) {
+    lockless_rguard_rw_contention(b, 30, true);
 }
 
 #[bench]
-fn read_guard_readwrite_contention_10(b: &mut test::bench::Bencher) {
-    read_guard_readwrite_contention(b, 10);
+fn lockless_rguard_writer_spinning_rw_contention_1(b: &mut test::bench::Bencher) {
+    lockless_rguard_rw_contention(b, 1, false);
+}
+#[bench]
+fn lockless_rguard_writer_spinning_rw_contention_10(b: &mut test::bench::Bencher) {
+    lockless_rguard_rw_contention(b, 10, false);
+}
+#[bench]
+fn lockless_rguard_writer_spinning_rw_contention_20(b: &mut test::bench::Bencher) {
+    lockless_rguard_rw_contention(b, 20, false);
+}
+#[bench]
+fn lockless_rguard_writer_spinning_rw_contention_30(b: &mut test::bench::Bencher) {
+    lockless_rguard_rw_contention(b, 30, false);
 }
 
 #[bench]
-fn read_guard_readwrite_contention_20(b: &mut test::bench::Bencher) {
-    read_guard_readwrite_contention(b, 20);
+fn shared_rguard_rw_contention_1(b: &mut test::bench::Bencher) {
+    shared_rguard_rw_contention(b, 1, true);
+}
+#[bench]
+fn shared_rguard_rw_contention_10(b: &mut test::bench::Bencher) {
+    shared_rguard_rw_contention(b, 10, true);
+}
+#[bench]
+fn shared_rguard_rw_contention_20(b: &mut test::bench::Bencher) {
+    shared_rguard_rw_contention(b, 20, true);
+}
+#[bench]
+fn shared_rguard_rw_contention_30(b: &mut test::bench::Bencher) {
+    shared_rguard_rw_contention(b, 30, true);
 }
 
 #[bench]
-fn read_guard_readwrite_contention_30(b: &mut test::bench::Bencher) {
-    read_guard_readwrite_contention(b, 30);
+fn shared_rguard_writer_spinning_rw_contention_1(b: &mut test::bench::Bencher) {
+    shared_rguard_rw_contention(b, 1, false);
 }
-
 #[bench]
-fn read_guard_readwrite_contention_40(b: &mut test::bench::Bencher) {
-    read_guard_readwrite_contention(b, 40);
+fn shared_rguard_writer_spinning_rw_contention_10(b: &mut test::bench::Bencher) {
+    shared_rguard_rw_contention(b, 10, false);
+}
+#[bench]
+fn shared_rguard_writer_spinning_rw_contention_20(b: &mut test::bench::Bencher) {
+    shared_rguard_rw_contention(b, 20, false);
+}
+#[bench]
+fn shared_rguard_writer_spinning_rw_contention_30(b: &mut test::bench::Bencher) {
+    shared_rguard_rw_contention(b, 30, false);
 }

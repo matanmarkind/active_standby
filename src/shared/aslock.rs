@@ -188,7 +188,7 @@ mod test {
     #[test]
     fn one_write_guard() {
         // TODO: Have a multithreaded test for this.
-        let mut writer = AsLock::<Vec<i32>>::default();
+        let writer = AsLock::<Vec<i32>>::default();
         let _wg = writer.write();
         // let wg2 = writer.write();
     }
@@ -285,7 +285,7 @@ mod test {
 
     #[test]
     fn debug_str() {
-        let mut aslock = AsLock::<Vec<i32>>::default();
+        let aslock = AsLock::<Vec<i32>>::default();
         assert_eq!(format!("{:?}", aslock), "AsLock");
         {
             let mut wg = aslock.write();

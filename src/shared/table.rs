@@ -8,6 +8,7 @@ pub struct Table<T> {
     table1: RwLock<T>,
 }
 
+#[allow(dead_code)]
 pub struct TableWriteGuard<'w, T> {
     is_table0_active: &'w RwLock<bool>,
     write_guard: MutexGuard<'w, ()>,
