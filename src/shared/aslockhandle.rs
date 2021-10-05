@@ -9,9 +9,9 @@ use std::fmt;
 pub struct AsLock<T> {
     // The underlying tables. This struct is responsible for returning the
     // correct active/standby table. The call. This table does not handle any
-    // synchronization across Writer/Readers, rather that is handled by the
-    // Writer and Readers themselves.
-    table: Arc<Table<T>>,
+    // synchronization across AsLock/Readers, rather that is handled by the
+    // AsLock and Readers themselves.
+    table: Table<T>,
 
     /// Log of operations to be performed on the second table. This gets played
     /// on the standby table when creating a WriteGuard, as opposed to when
@@ -21,7 +21,7 @@ pub struct AsLock<T> {
     ops_to_replay: Mutex<Vec<Box<dyn FnOnce(&mut T) + Send>>>,
 }
 
-/// Guard for a SyncWriter, not a WriteGuard that is Sync.
+/// Guard for a SyncAsLock, not a WriteGuard that is Sync.
 ///
 /// Same as a WriteGuard, but update_tables requires that updates are Send.
 pub struct WriteGuard<'w, T> {
@@ -53,7 +53,7 @@ impl<T> AsLock<T> {
     ///   tables. They must be identical; this is left to the user to enforce.
     pub fn from_identical(t1: T, t2: T) -> AsLock<T> {
         AsLock {
-            table: Arc::new(Table::from_identical(t1, t2)),
+            table: Table::from_identical(t1, t2),
             ops_to_replay: Mutex::default(),
         }
     }
@@ -67,7 +67,7 @@ impl<T> AsLock<T> {
     ///    not itself been dropped.
     /// 2. Replaying all of the updates that were applied to the last
     ///    WriteGuard.
-    pub fn write(&mut self) -> WriteGuard<'_, T> {
+    pub fn write(&self) -> WriteGuard<'_, T> {
         let mut table = self.table.write();
 
         // Replay all ops on the standby table.
@@ -136,5 +136,171 @@ impl<'w, T: fmt::Debug> fmt::Debug for WriteGuard<'w, T> {
             .field("num_ops_to_replay", &self.ops_to_replay.len())
             .field("standby_table", &self.table)
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::thread;
+
+    struct PushVec<T> {
+        value: T,
+    }
+    impl<'a, T> UpdateTables<'a, Vec<T>, ()> for PushVec<T>
+    where
+        T: Clone,
+    {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) {
+            table.push(self.value.clone());
+        }
+        fn apply_second(self, table: &mut Vec<T>) {
+            table.push(self.value); // Move the value instead of cloning.
+        }
+    }
+
+    struct PopVec {}
+    impl PopVec {
+        fn apply<'a, T>(&mut self, table: &'a mut Vec<T>) -> Option<T> {
+            table.pop()
+        }
+    }
+    impl<'a, T> UpdateTables<'a, Vec<T>, Option<T>> for PopVec {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) -> Option<T> {
+            self.apply(table)
+        }
+        fn apply_second(mut self, table: &mut Vec<T>) {
+            (&mut self).apply(table);
+        }
+    }
+
+    /// This is an example of what not to do!
+    struct MutableRef {}
+    impl<'a, T> UpdateTables<'a, Vec<T>, &'a mut T> for MutableRef {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) -> &'a mut T {
+            &mut table[0]
+        }
+        fn apply_second(self, table: &mut Vec<T>) {
+            &mut table[0];
+        }
+    }
+
+    #[test]
+    fn one_write_guard() {
+        // TODO: Have a multithreaded test for this.
+        let mut writer = AsLock::<Vec<i32>>::default();
+        let _wg = writer.write();
+        // let wg2 = writer.write();
+    }
+
+    #[test]
+    fn publish_update() {
+        let aslock = AsLock::<Vec<i32>>::default();
+        assert_eq!(aslock.read().len(), 0);
+
+        {
+            let mut wg = aslock.write();
+            wg.update_tables(PushVec { value: 2 });
+            assert_eq!(wg.len(), 1);
+            assert_eq!(aslock.read().len(), 0);
+        }
+
+        // When the write guard is dropped it publishes the changes to the readers.
+        assert_eq!(*aslock.read(), vec![2]);
+    }
+
+    #[test]
+    fn multi_apply() {
+        let aslock = AsLock::<Vec<i32>>::default();
+        {
+            let mut wg = aslock.write();
+            wg.update_tables(PushVec { value: 2 });
+            wg.update_tables(PushVec { value: 3 });
+            wg.update_tables(PushVec { value: 4 });
+            wg.update_tables(PopVec {});
+            wg.update_tables(PushVec { value: 5 });
+        }
+        assert_eq!(*aslock.read(), vec![2, 3, 5]);
+    }
+
+    #[test]
+    fn multi_publish() {
+        let aslock = AsLock::<Vec<Box<i32>>>::default();
+        {
+            let mut wg = aslock.write();
+            wg.update_tables(PushVec { value: Box::new(2) });
+            wg.update_tables(PushVec { value: Box::new(3) });
+            wg.update_tables(PopVec {});
+            wg.update_tables(PushVec { value: Box::new(5) });
+        }
+        assert_eq!(*aslock.read(), vec![Box::new(2), Box::new(5)]);
+
+        {
+            let mut wg = aslock.write();
+            wg.update_tables(PushVec { value: Box::new(9) });
+            wg.update_tables(PushVec { value: Box::new(8) });
+            wg.update_tables(PopVec {});
+            wg.update_tables(PushVec { value: Box::new(7) });
+        }
+        assert_eq!(
+            *aslock.read(),
+            vec![Box::new(2), Box::new(5), Box::new(9), Box::new(7)]
+        );
+
+        {
+            let mut wg = aslock.write();
+            wg.update_tables(PopVec {});
+        }
+        assert_eq!(*aslock.read(), vec![Box::new(2), Box::new(5), Box::new(9)]);
+    }
+
+    #[test]
+    fn multi_thread() {
+        let aslock = Arc::new(AsLock::<Vec<i32>>::default());
+        let aslock2 = Arc::clone(&aslock);
+        let handler = thread::spawn(move || {
+            while *aslock2.read() != vec![2, 3, 5] {
+                // Since commits oly happen when a WriteGuard is dropped no reader
+                // will see this state.
+                assert_ne!(*aslock2.read(), vec![2, 3, 4]);
+            }
+
+            // Show multiple readers in multiple threads.
+            let aslock3 = Arc::clone(&aslock2);
+            let handler = thread::spawn(move || while *aslock3.read() != vec![2, 3, 5] {});
+            assert!(handler.join().is_ok());
+        });
+
+        {
+            let mut wg = aslock.write();
+            wg.update_tables(PushVec { value: 2 });
+            wg.update_tables(PushVec { value: 3 });
+            wg.update_tables(PushVec { value: 4 });
+            wg.update_tables(PopVec {});
+            wg.update_tables(PushVec { value: 5 });
+        }
+
+        assert!(handler.join().is_ok());
+    }
+
+    #[test]
+    fn debug_str() {
+        let mut aslock = AsLock::<Vec<i32>>::default();
+        assert_eq!(format!("{:?}", aslock), "AsLock");
+        {
+            let mut wg = aslock.write();
+            wg.update_tables(PushVec { value: 2 });
+            assert_eq!(
+                format!("{:?}", wg),
+                "WriteGuard { num_ops_to_replay: 1, standby_table: TableWriteGuard { standby_table: [2] } }");
+        }
+        assert_eq!(format!("{:?}", aslock), "AsLock");
+        // The aliased shared lock shows up in this debug. What we mostly care
+        // about is that this says ReadGuard and shows the underlying data. It's
+        // fine to update this if we ever change the underlying RwLock.
+        assert_eq!(
+            format!("{:?}", aslock.read()),
+            "ShardedLockReadGuard { lock: ShardedLock { data: [2] } }"
+        );
     }
 }

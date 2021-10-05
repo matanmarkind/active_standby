@@ -141,7 +141,6 @@ mod test {
         {
             let mut wg = table.write();
             *wg += 1;
-            wg.swap_active_and_standby();
         }
 
         assert_eq!(*table.read(), 6);

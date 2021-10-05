@@ -440,7 +440,7 @@ mod test {
     }
 
     #[test]
-    fn one_reade_guard() {
+    fn one_read_guard() {
         let writer = Writer::<Vec<i32>>::default();
         let reader = writer.new_reader();
         let _rg = reader.read();
