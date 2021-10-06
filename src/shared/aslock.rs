@@ -118,11 +118,14 @@ impl<'w, T> WriteGuard<'w, T> {
 
         res
     }
-    pub fn update_tables_closure(&mut self, mut update: impl Fn(&mut T) + 'static + Sized + Send) {
+    pub fn update_tables_closure<R>(
+        &mut self,
+        update: impl Fn(&mut T) -> R + 'static + Sized + Send,
+    ) -> R {
         let res = update(&mut self.table);
-
-        self.ops_to_replay.push(Box::new(update));
-
+        self.ops_to_replay.push(Box::new(move |table| {
+            update(table);
+        }));
         res
     }
 }

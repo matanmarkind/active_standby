@@ -54,7 +54,7 @@ pub mod aslock {
     // the associated WriteGuard which is used to mutate the 
     // data. Users should interact with this similarly to 
     // Arc<RwLock<i32>>.
-    active_standby::generate_aslock_handle!(i32);
+    active_standby::generate_lockless_aslockhandle!(i32);
 
     // Client's must implement the mutable interface that 
     // they want to offer users of their active standby data 

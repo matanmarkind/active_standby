@@ -217,6 +217,17 @@ impl<'w, T> WriteGuard<'w, T> {
 
         res
     }
+
+    pub fn update_tables_closure<R>(
+        &mut self,
+        update: impl Fn(&mut T) -> R + 'static + Sized,
+    ) -> R {
+        let res = update(&mut self.table);
+        self.ops_to_replay.push(Box::new(move |table| {
+            update(table);
+        }));
+        res
+    }
 }
 
 impl<'w, T> Drop for WriteGuard<'w, T> {
@@ -362,6 +373,13 @@ impl<'w, T> SyncWriteGuard<'w, T> {
     ) -> R {
         unsafe { &mut *self.write_guard.as_ref().unwrap().get() }.update_tables(update)
     }
+
+    pub fn update_tables_closure<R>(
+        &mut self,
+        update: impl Fn(&mut T) -> R + 'static + Sized + Send,
+    ) -> R {
+        unsafe { &mut *self.write_guard.as_ref().unwrap().get() }.update_tables_closure(update)
+    }
 }
 
 impl<'w, T> Drop for SyncWriteGuard<'w, T> {
@@ -461,6 +479,23 @@ mod test {
         {
             let mut wg = writer.write();
             wg.update_tables(PushVec { value: 2 });
+            assert_eq!(wg.len(), 1);
+            assert_eq!(reader.read().len(), 0);
+        }
+
+        // When the write guard is dropped it publishes the changes to the readers.
+        assert_eq!(*reader.read(), vec![2]);
+    }
+
+    #[test]
+    fn update_tables_closure() {
+        let writer = SyncWriter::<Vec<i32>>::default();
+        let reader = writer.new_reader();
+        assert_eq!(reader.read().len(), 0);
+
+        {
+            let mut wg = writer.write();
+            wg.update_tables_closure(|vec| vec.push(2));
             assert_eq!(wg.len(), 1);
             assert_eq!(reader.read().len(), 0);
         }

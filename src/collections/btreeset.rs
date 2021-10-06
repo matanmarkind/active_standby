@@ -4,8 +4,6 @@
 use crate::primitives::UpdateTables;
 use std::collections::BTreeSet;
 
-crate::generate_aslock_handle!(BTreeSet<T>);
-
 struct Insert<T> {
     value: T,
 }
@@ -40,54 +38,6 @@ where
     }
 }
 
-struct Clear {}
-
-impl<'a, T> UpdateTables<'a, BTreeSet<T>, ()> for Clear
-where
-    T: Ord + Clone,
-{
-    fn apply_first(&mut self, table: &'a mut BTreeSet<T>) {
-        table.clear()
-    }
-    fn apply_second(mut self, table: &mut BTreeSet<T>) {
-        self.apply_first(table);
-    }
-}
-
-struct Remove<Q> {
-    value_like: Q,
-}
-
-impl<'a, T, Q> UpdateTables<'a, BTreeSet<T>, bool> for Remove<Q>
-where
-    Q: Ord,
-    T: Ord + std::borrow::Borrow<Q>,
-{
-    fn apply_first(&mut self, table: &'a mut BTreeSet<T>) -> bool {
-        table.remove(&self.value_like)
-    }
-    fn apply_second(mut self, table: &mut BTreeSet<T>) {
-        self.apply_first(table);
-    }
-}
-
-struct Take<Q> {
-    value_like: Q,
-}
-
-impl<'a, T, Q> UpdateTables<'a, BTreeSet<T>, Option<T>> for Take<Q>
-where
-    Q: Ord,
-    T: Ord + std::borrow::Borrow<Q>,
-{
-    fn apply_first(&mut self, table: &'a mut BTreeSet<T>) -> Option<T> {
-        table.take(&self.value_like)
-    }
-    fn apply_second(mut self, table: &mut BTreeSet<T>) {
-        self.apply_first(table);
-    }
-}
-
 struct Append<T> {
     other: BTreeSet<T>,
 }
@@ -106,45 +56,96 @@ where
     }
 }
 
-impl<'w, T> WriteGuard<'w, T>
-where
-    T: 'static + Ord + Clone + Send,
-{
-    pub fn insert(&mut self, value: T) -> bool {
-        self.guard.update_tables(Insert { value })
-    }
+pub mod lockless {
+    use super::*;
+    crate::generate_lockless_aslockhandle!(BTreeSet<T>);
 
-    pub fn replace(&mut self, value: T) -> Option<T> {
-        self.guard.update_tables(Replace { value })
-    }
-
-    pub fn clear(&mut self) {
-        self.guard.update_tables(Clear {})
-    }
-
-    pub fn remove<Q>(&mut self, value_like: Q) -> bool
+    impl<'w, T> WriteGuard<'w, T>
     where
-        T: std::borrow::Borrow<Q>,
-        Q: 'static + Ord + Send,
+        T: 'static + Ord + Clone + Send,
     {
-        self.guard.update_tables(Remove { value_like })
-    }
+        pub fn insert(&mut self, value: T) -> bool {
+            self.guard.update_tables(Insert { value })
+        }
 
-    pub fn take<Q>(&mut self, value_like: Q) -> Option<T>
+        pub fn replace(&mut self, value: T) -> Option<T> {
+            self.guard.update_tables(Replace { value })
+        }
+
+        pub fn clear(&mut self) {
+            self.guard.update_tables_closure(move |table| table.clear())
+        }
+
+        pub fn remove<Q>(&mut self, value_like: Q) -> bool
+        where
+            T: std::borrow::Borrow<Q>,
+            Q: 'static + Ord + Send,
+        {
+            self.guard
+                .update_tables_closure(move |table| table.remove(&value_like))
+        }
+
+        pub fn take<Q>(&mut self, value_like: Q) -> Option<T>
+        where
+            T: std::borrow::Borrow<Q>,
+            Q: 'static + Ord + Send,
+        {
+            self.guard
+                .update_tables_closure(move |table| table.take(&value_like))
+        }
+
+        pub fn append(&mut self, other: BTreeSet<T>) {
+            self.guard.update_tables(Append { other })
+        }
+    }
+}
+
+pub mod shared {
+    use super::*;
+    crate::generate_shared_aslock!(BTreeSet<T>);
+
+    impl<'w, T> WriteGuard<'w, T>
     where
-        T: std::borrow::Borrow<Q>,
-        Q: 'static + Ord + Send,
+        T: 'static + Ord + Clone + Send,
     {
-        self.guard.update_tables(Take { value_like })
-    }
+        pub fn insert(&mut self, value: T) -> bool {
+            self.guard.update_tables(Insert { value })
+        }
 
-    pub fn append(&mut self, other: BTreeSet<T>) {
-        self.guard.update_tables(Append { other })
+        pub fn replace(&mut self, value: T) -> Option<T> {
+            self.guard.update_tables(Replace { value })
+        }
+
+        pub fn clear(&mut self) {
+            self.guard.update_tables_closure(move |table| table.clear())
+        }
+
+        pub fn remove<Q>(&mut self, value_like: Q) -> bool
+        where
+            T: std::borrow::Borrow<Q>,
+            Q: 'static + Ord + Send,
+        {
+            self.guard
+                .update_tables_closure(move |table| table.remove(&value_like))
+        }
+
+        pub fn take<Q>(&mut self, value_like: Q) -> Option<T>
+        where
+            T: std::borrow::Borrow<Q>,
+            Q: 'static + Ord + Send,
+        {
+            self.guard
+                .update_tables_closure(move |table| table.take(&value_like))
+        }
+
+        pub fn append(&mut self, other: BTreeSet<T>) {
+            self.guard.update_tables(Append { other })
+        }
     }
 }
 
 #[cfg(test)]
-mod test {
+mod lockless_test {
     use super::*;
     use maplit::*;
 
@@ -155,7 +156,7 @@ mod test {
             "world",
         };
 
-        let table = AsLockHandle::<&str>::default();
+        let table = lockless::AsLockHandle::<&str>::default();
         {
             let mut wg = table.write();
             wg.insert("hello");
@@ -170,7 +171,7 @@ mod test {
 
     #[test]
     fn clear() {
-        let table = AsLockHandle::<&str>::default();
+        let table = lockless::AsLockHandle::<&str>::default();
         {
             let mut wg = table.write();
             wg.insert("hello");
@@ -188,7 +189,7 @@ mod test {
         let expected = btreeset! {
             "hello",
         };
-        let table = AsLockHandle::<&str>::default();
+        let table = lockless::AsLockHandle::<&str>::default();
         {
             let mut wg = table.write();
             wg.insert("hello");
@@ -214,7 +215,7 @@ mod test {
             "joe",
         };
 
-        let table = AsLockHandle::<&str>::default();
+        let table = lockless::AsLockHandle::<&str>::default();
         {
             let map1 = btreeset! {
                 "hello",
@@ -237,7 +238,7 @@ mod test {
 
     #[test]
     fn debug_str() {
-        let table = AsLockHandle::<i32>::default();
+        let table = lockless::AsLockHandle::<i32>::default();
         {
             table.write().insert(12);
         }
@@ -245,6 +246,113 @@ mod test {
         assert_eq!(
             format!("{:?}", table),
             "AsLockHandle { reader: ReadGuard { active_table: {12} } }",
+        );
+    }
+}
+
+#[cfg(test)]
+mod shared_test {
+    use super::*;
+    use maplit::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn insert() {
+        let expected = btreeset! {
+            "hello",
+            "world",
+        };
+
+        let table = Arc::new(shared::AsLock::<&str>::default());
+        {
+            let mut wg = table.write();
+            wg.insert("hello");
+            wg.insert("world");
+            assert_eq!(*wg, expected);
+        }
+
+        assert_eq!(*table.read(), expected);
+        assert_eq!(*table.write(), expected);
+        assert_eq!(*table.read(), expected);
+    }
+
+    #[test]
+    fn clear() {
+        let table = shared::AsLock::<&str>::default();
+        {
+            let mut wg = table.write();
+            wg.insert("hello");
+            wg.insert("world");
+            wg.clear();
+        }
+
+        assert!(table.read().is_empty());
+        assert!(table.write().is_empty());
+        assert!(table.read().is_empty());
+    }
+
+    #[test]
+    fn remove_and_take() {
+        let expected = btreeset! {
+            "hello",
+        };
+        let table = shared::AsLock::<&str>::default();
+        {
+            let mut wg = table.write();
+            wg.insert("hello");
+            wg.insert("world");
+            wg.insert("I");
+            assert_eq!(wg.remove("world"), true);
+            assert_eq!(wg.take("I"), Some("I"));
+            assert_eq!(wg.take("I"), None);
+            assert_eq!(*wg, expected);
+        }
+
+        assert_eq!(*table.read(), expected);
+        assert_eq!(*table.write(), expected);
+        assert_eq!(*table.read(), expected);
+    }
+
+    #[test]
+    fn append() {
+        let expected = btreeset! {
+            "hello",
+            "world",
+            "name's",
+            "joe",
+        };
+
+        let table = shared::AsLock::<&str>::default();
+        {
+            let map1 = btreeset! {
+                "hello",
+                "world",
+            };
+            let map2 = btreeset! {
+                "name's" ,
+                "joe" ,
+            };
+            let mut wg = table.write();
+            wg.append(map1);
+            wg.append(map2);
+            assert_eq!(*wg, expected);
+        }
+
+        assert_eq!(*table.read(), expected);
+        assert_eq!(*table.write(), expected);
+        assert_eq!(*table.read(), expected);
+    }
+
+    #[test]
+    fn debug_str() {
+        let table = shared::AsLock::<i32>::default();
+        {
+            table.write().insert(12);
+        }
+
+        assert_eq!(
+            format!("{:?}", table),
+            "AsLock { reader: ShardedLockReadGuard { lock: ShardedLock { data: {12} } } }",
         );
     }
 }

@@ -6,49 +6,6 @@ use std::borrow::Borrow;
 use std::collections::HashSet;
 use std::hash::Hash;
 
-crate::generate_aslock_handle!(HashSet<T>);
-
-struct Clear {}
-
-impl<'a, T> UpdateTables<'a, HashSet<T>, ()> for Clear {
-    fn apply_first(&mut self, table: &'a mut HashSet<T>) {
-        table.clear()
-    }
-    fn apply_second(mut self, table: &mut HashSet<T>) {
-        self.apply_first(table);
-    }
-}
-
-struct ShrinkToFit {}
-
-impl<'a, T> UpdateTables<'a, HashSet<T>, ()> for ShrinkToFit
-where
-    T: Eq + Hash,
-{
-    fn apply_first(&mut self, table: &'a mut HashSet<T>) {
-        table.shrink_to_fit()
-    }
-    fn apply_second(mut self, table: &mut HashSet<T>) {
-        self.apply_first(table);
-    }
-}
-
-struct Reserve {
-    additional: usize,
-}
-
-impl<'a, T> UpdateTables<'a, HashSet<T>, ()> for Reserve
-where
-    T: Eq + Hash,
-{
-    fn apply_first(&mut self, table: &'a mut HashSet<T>) {
-        table.reserve(self.additional)
-    }
-    fn apply_second(mut self, table: &mut HashSet<T>) {
-        self.apply_first(table);
-    }
-}
-
 struct Insert<T> {
     value: T,
 }
@@ -80,40 +37,6 @@ where
     fn apply_second(self, table: &mut HashSet<T>) {
         // Move the value instead of cloning.
         table.replace(self.value);
-    }
-}
-
-struct Remove<Q> {
-    value_like: Q,
-}
-
-impl<'a, T, Q> UpdateTables<'a, HashSet<T>, bool> for Remove<Q>
-where
-    Q: Eq + Hash,
-    T: Eq + Hash + Borrow<Q>,
-{
-    fn apply_first(&mut self, table: &'a mut HashSet<T>) -> bool {
-        table.remove(&self.value_like)
-    }
-    fn apply_second(mut self, table: &mut HashSet<T>) {
-        self.apply_first(table);
-    }
-}
-
-struct Take<Q> {
-    value_like: Q,
-}
-
-impl<'a, T, Q> UpdateTables<'a, HashSet<T>, Option<T>> for Take<Q>
-where
-    Q: Eq + Hash,
-    T: Eq + Hash + Borrow<Q>,
-{
-    fn apply_first(&mut self, table: &'a mut HashSet<T>) -> Option<T> {
-        table.take(&self.value_like)
-    }
-    fn apply_second(mut self, table: &mut HashSet<T>) {
-        self.apply_first(table);
     }
 }
 
@@ -154,63 +77,136 @@ impl<'a, T> UpdateTables<'a, HashSet<T>, std::collections::hash_set::Drain<'a, T
     }
 }
 
-impl<'w, 'a, T> WriteGuard<'w, T>
-where
-    T: 'static + Eq + Hash + Clone + Send,
-{
-    pub fn clear(&mut self) {
-        self.guard.update_tables(Clear {})
-    }
+pub mod lockless {
+    use super::*;
+    crate::generate_lockless_aslockhandle!(HashSet<T>);
 
-    pub fn shrink_to_fit(&mut self) {
-        self.guard.update_tables(ShrinkToFit {})
-    }
-
-    pub fn reserve(&mut self, additional: usize) {
-        self.guard.update_tables(Reserve { additional })
-    }
-
-    pub fn insert(&mut self, value: T) -> bool {
-        self.guard.update_tables(Insert { value })
-    }
-
-    pub fn replace(&mut self, value: T) -> Option<T> {
-        self.guard.update_tables(Replace { value })
-    }
-
-    pub fn remove<Q>(&mut self, value_like: Q) -> bool
+    impl<'w, 'a, T> WriteGuard<'w, T>
     where
-        T: Borrow<Q>,
-        Q: 'static + Hash + Eq + Send,
+        T: 'static + Eq + Hash + Clone + Send,
     {
-        self.guard.update_tables(Remove { value_like })
-    }
+        pub fn clear(&mut self) {
+            self.guard.update_tables_closure(move |table| table.clear())
+        }
 
-    pub fn take<Q>(&mut self, value_like: Q) -> Option<T>
+        pub fn shrink_to_fit(&mut self) {
+            self.guard
+                .update_tables_closure(move |table| table.shrink_to_fit())
+        }
+
+        pub fn reserve(&mut self, additional: usize) {
+            self.guard
+                .update_tables_closure(move |table| table.reserve(additional))
+        }
+
+        pub fn insert(&mut self, value: T) -> bool {
+            self.guard.update_tables(Insert { value })
+        }
+
+        pub fn replace(&mut self, value: T) -> Option<T> {
+            self.guard.update_tables(Replace { value })
+        }
+
+        pub fn remove<Q>(&mut self, value_like: Q) -> bool
+        where
+            T: Borrow<Q>,
+            Q: 'static + Hash + Eq + Send,
+        {
+            self.guard
+                .update_tables_closure(move |table| table.remove(&value_like))
+        }
+
+        pub fn take<Q>(&mut self, value_like: Q) -> Option<T>
+        where
+            T: Borrow<Q>,
+            Q: 'static + Hash + Eq + Send,
+        {
+            self.guard
+                .update_tables_closure(move |table| table.take(&value_like))
+        }
+
+        pub fn retain<F>(&mut self, f: F)
+        where
+            F: 'static + Send + Clone + FnMut(&T) -> bool,
+        {
+            self.guard.update_tables(Retain {
+                f,
+                _compile_k_v: std::marker::PhantomData,
+            })
+        }
+
+        pub fn drain(&'a mut self) -> std::collections::hash_set::Drain<'a, T> {
+            self.guard.update_tables(Drain {})
+        }
+    }
+}
+
+pub mod shared {
+    use super::*;
+    crate::generate_shared_aslock!(HashSet<T>);
+
+    impl<'w, 'a, T> WriteGuard<'w, T>
     where
-        T: Borrow<Q>,
-        Q: 'static + Hash + Eq + Send,
+        T: 'static + Eq + Hash + Clone + Send,
     {
-        self.guard.update_tables(Take { value_like })
-    }
+        pub fn clear(&mut self) {
+            self.guard.update_tables_closure(move |table| table.clear())
+        }
 
-    pub fn retain<F>(&mut self, f: F)
-    where
-        F: 'static + Send + Clone + FnMut(&T) -> bool,
-    {
-        self.guard.update_tables(Retain {
-            f,
-            _compile_k_v: std::marker::PhantomData,
-        })
-    }
+        pub fn shrink_to_fit(&mut self) {
+            self.guard
+                .update_tables_closure(move |table| table.shrink_to_fit())
+        }
 
-    pub fn drain(&'a mut self) -> std::collections::hash_set::Drain<'a, T> {
-        self.guard.update_tables(Drain {})
+        pub fn reserve(&mut self, additional: usize) {
+            self.guard
+                .update_tables_closure(move |table| table.reserve(additional))
+        }
+
+        pub fn insert(&mut self, value: T) -> bool {
+            self.guard.update_tables(Insert { value })
+        }
+
+        pub fn replace(&mut self, value: T) -> Option<T> {
+            self.guard.update_tables(Replace { value })
+        }
+
+        pub fn remove<Q>(&mut self, value_like: Q) -> bool
+        where
+            T: Borrow<Q>,
+            Q: 'static + Hash + Eq + Send,
+        {
+            self.guard
+                .update_tables_closure(move |table| table.remove(&value_like))
+        }
+
+        pub fn take<Q>(&mut self, value_like: Q) -> Option<T>
+        where
+            T: Borrow<Q>,
+            Q: 'static + Hash + Eq + Send,
+        {
+            self.guard
+                .update_tables_closure(move |table| table.take(&value_like))
+        }
+
+        pub fn retain<F>(&mut self, f: F)
+        where
+            F: 'static + Send + Clone + FnMut(&T) -> bool,
+        {
+            self.guard.update_tables(Retain {
+                f,
+                _compile_k_v: std::marker::PhantomData,
+            })
+        }
+
+        pub fn drain(&'a mut self) -> std::collections::hash_set::Drain<'a, T> {
+            self.guard.update_tables(Drain {})
+        }
     }
 }
 
 #[cfg(test)]
-mod test {
+mod lockless_test {
     use super::*;
     use maplit::*;
     use more_asserts::*;
@@ -222,7 +218,7 @@ mod test {
             "world",
         };
 
-        let table = AsLockHandle::<&str>::default();
+        let table = lockless::AsLockHandle::<&str>::default();
         {
             let mut wg = table.write();
             wg.insert("hello");
@@ -238,7 +234,7 @@ mod test {
 
     #[test]
     fn clear() {
-        let table = AsLockHandle::<&str>::default();
+        let table = lockless::AsLockHandle::<&str>::default();
         {
             let mut wg = table.write();
             wg.insert("hello");
@@ -257,7 +253,7 @@ mod test {
             "hello",
         };
 
-        let table = AsLockHandle::<&str>::new(std::collections::HashSet::new());
+        let table = lockless::AsLockHandle::<&str>::new(std::collections::HashSet::new());
         {
             let mut wg = table.write();
             wg.insert("hello");
@@ -276,7 +272,7 @@ mod test {
 
     #[test]
     fn shrink_to_fit_and_reserve() {
-        let table = AsLockHandle::<&str>::from_identical(
+        let table = lockless::AsLockHandle::<&str>::from_identical(
             std::collections::HashSet::new(),
             std::collections::HashSet::new(),
         );
@@ -305,7 +301,7 @@ mod test {
             "hello",
             "name",
         };
-        let table = AsLockHandle::<&str>::default();
+        let table = lockless::AsLockHandle::<&str>::default();
         {
             let mut wg = table.write();
             wg.insert("hello");
@@ -330,7 +326,7 @@ mod test {
             "world",
         };
 
-        let table = AsLockHandle::<&str>::default();
+        let table = lockless::AsLockHandle::<&str>::default();
         {
             let mut wg = table.write();
             wg.insert("hello");
@@ -349,7 +345,7 @@ mod test {
 
     #[test]
     fn debug_str() {
-        let table = AsLockHandle::<i32>::default();
+        let table = lockless::AsLockHandle::<i32>::default();
         {
             table.write().insert(12);
         }
@@ -357,6 +353,159 @@ mod test {
         assert_eq!(
             format!("{:?}", table),
             "AsLockHandle { reader: ReadGuard { active_table: {12} } }",
+        );
+    }
+}
+
+#[cfg(test)]
+mod shared_test {
+    use super::*;
+    use maplit::*;
+    use more_asserts::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn insert_and_replace() {
+        let expected = hashset! {
+            "hello",
+            "world",
+        };
+
+        let table = Arc::new(shared::AsLock::<&str>::default());
+        {
+            let mut wg = table.write();
+            wg.insert("hello");
+            wg.insert("world");
+            wg.replace("world");
+            assert_eq!(*wg, expected);
+        }
+
+        assert_eq!(*table.read(), expected);
+        assert_eq!(*table.write(), expected);
+        assert_eq!(*table.read(), expected);
+    }
+
+    #[test]
+    fn clear() {
+        let table = shared::AsLock::<&str>::default();
+        {
+            let mut wg = table.write();
+            wg.insert("hello");
+            wg.insert("world");
+            wg.clear();
+        }
+
+        assert!(table.read().is_empty());
+        assert!(table.write().is_empty());
+        assert!(table.read().is_empty());
+    }
+
+    #[test]
+    fn remove_and_take() {
+        let expected = hashset! {
+            "hello",
+        };
+
+        let table = shared::AsLock::<&str>::new(std::collections::HashSet::new());
+        {
+            let mut wg = table.write();
+            wg.insert("hello");
+            wg.insert("world");
+            wg.insert("I");
+            assert_eq!(wg.remove("world"), true);
+            assert_eq!(wg.take("I"), Some("I"));
+            assert_eq!(wg.take("I"), None);
+            assert_eq!(*wg, expected);
+        }
+
+        assert_eq!(*table.read(), expected);
+        assert_eq!(*table.write(), expected);
+        assert_eq!(*table.read(), expected);
+    }
+
+    #[test]
+    fn shrink_to_fit_and_reserve() {
+        let table = shared::AsLock::<&str>::from_identical(
+            std::collections::HashSet::new(),
+            std::collections::HashSet::new(),
+        );
+        let initial_capacity;
+        let additional = 10;
+        {
+            let mut wg = table.write();
+            wg.insert("hello");
+            wg.insert("world");
+            wg.shrink_to_fit();
+            initial_capacity = wg.capacity();
+            wg.reserve(additional);
+            assert_ge!(wg.capacity(), initial_capacity + additional);
+        }
+
+        assert_ge!(table.read().capacity(), initial_capacity + additional);
+        assert_ge!(table.write().capacity(), initial_capacity + additional);
+        assert_ge!(table.read().capacity(), initial_capacity + additional);
+    }
+
+    #[test]
+    fn retain() {
+        let expected = hashset! {
+            "joe",
+            "world",
+            "hello",
+            "name",
+        };
+        let table = shared::AsLock::<&str>::default();
+        {
+            let mut wg = table.write();
+            wg.insert("hello");
+            wg.insert("world");
+            wg.insert("my");
+            wg.insert("name");
+            wg.insert("is");
+            wg.insert("joe");
+            wg.retain(|&k| k.len() > 2);
+            assert_eq!(*wg, expected);
+        }
+
+        assert_eq!(*table.read(), expected);
+        assert_eq!(*table.write(), expected);
+        assert_eq!(*table.read(), expected);
+    }
+
+    #[test]
+    fn drain() {
+        let expected = hashset! {
+            "hello" ,
+            "world",
+        };
+
+        let table = shared::AsLock::<&str>::default();
+        {
+            let mut wg = table.write();
+            wg.insert("hello");
+            wg.insert("world");
+            assert_eq!(*wg, expected);
+            assert_eq!(
+                wg.drain().collect::<std::collections::HashSet<_>>(),
+                expected
+            );
+        }
+
+        assert!(table.read().is_empty());
+        assert!(table.write().is_empty());
+        assert!(table.read().is_empty());
+    }
+
+    #[test]
+    fn debug_str() {
+        let table = shared::AsLock::<i32>::default();
+        {
+            table.write().insert(12);
+        }
+
+        assert_eq!(
+            format!("{:?}", table),
+            "AsLock { reader: ShardedLockReadGuard { lock: ShardedLock { data: {12} } } }",
         );
     }
 }

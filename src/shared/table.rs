@@ -8,21 +8,17 @@ pub struct Table<T> {
     table1: RwLock<T>,
 }
 
-#[allow(dead_code)]
 pub struct TableWriteGuard<'w, T> {
     is_table0_active: &'w RwLock<bool>,
-    write_guard: MutexGuard<'w, ()>,
     standby_table: RwLockWriteGuard<'w, T>,
+
+    // This field is never read from. It is just here for the side effect of
+    // keeping calls to Table::write single threaded.
+    #[allow(dead_code)]
+    write_guard: MutexGuard<'w, ()>,
 }
 
 impl<T> Table<T> {
-    pub fn new(t: T) -> Table<T>
-    where
-        T: Clone,
-    {
-        Table::from_identical(t.clone(), t)
-    }
-
     pub fn from_identical(t1: T, t2: T) -> Table<T> {
         Table {
             is_table0_active: RwLock::new(true),
@@ -52,8 +48,8 @@ impl<T> Table<T> {
         // By using an RwLock to guard the entire call of read & write, we
         // guarantee that a reader will never get stuck waiting for a writer to
         // release a given table.
-        let mut guard = Some(self.is_table0_active.read().unwrap());
-        let is_table0_active = *guard.unwrap();
+        let guard = self.is_table0_active.read().unwrap();
+        let is_table0_active = *guard;
 
         let active_table;
         if is_table0_active {
@@ -61,11 +57,6 @@ impl<T> Table<T> {
         } else {
             active_table = self.table1.read().unwrap();
         }
-
-        // Make sure that the guard is only dropped after we reference the
-        // table.
-        std::sync::atomic::compiler_fence(Ordering::SeqCst);
-        guard = None;
 
         active_table
     }
@@ -137,7 +128,7 @@ mod test {
 
     #[test]
     fn table() {
-        let table = Table::new(5);
+        let table = Table::from_identical(5, 5);
 
         {
             let mut wg = table.write();

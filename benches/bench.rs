@@ -1,6 +1,12 @@
 #![feature(test)]
 
-/// Benchmarks for the table.
+/// Benchmarks for the table. Run via:
+///
+///     $ cargo +nightly bench
+///
+/// In practice you may want to run each one separately because running them all
+/// at once seems to overtax my computer and slow down some of them (due to CPU
+/// heating?).
 ///
 /// Useful to also run this with tsan:
 ///
@@ -41,7 +47,7 @@ impl<'a> UpdateTables<'a, i32, ()> for SetZero {
 }
 
 pub mod lockless {
-    active_standby::generate_aslock_handle!(i32);
+    active_standby::generate_lockless_aslockhandle!(i32);
 
     impl<'w> WriteGuard<'w> {
         pub fn add_one(&mut self) {
@@ -105,49 +111,6 @@ fn lockless_wguard_without_rcontention(b: &mut test::bench::Bencher) {
 #[bench]
 fn shared_wguard_without_rcontention(b: &mut test::bench::Bencher) {
     let table = Arc::new(shared::AsLock::new(1));
-    b.iter(|| {
-        let mut wg = table.write();
-        wg.add_one();
-    });
-}
-
-// Test the speed of acquiring write guards when there are many readers taking
-// the active_table for short durations.
-#[bench]
-fn lockless_wguard_with_contention(b: &mut test::bench::Bencher) {
-    let mut writer = Writer::<i32>::new(1);
-    let _reader_handles: Vec<_> = (0..4)
-        .map(|_| {
-            let reader = writer.new_reader();
-            std::thread::spawn(move || {
-                // Continually grab read guards. We expect that readers can
-                // block the writer, so no point holding the reader for a long
-                // time since that will just slow down the benchmark
-                while *reader.read() != 0 {}
-            })
-        })
-        .collect();
-
-    b.iter(|| {
-        let mut wg = writer.write();
-        wg.update_tables(AddOne {});
-    });
-}
-#[bench]
-fn shared_wguard_with_contention(b: &mut test::bench::Bencher) {
-    let table = Arc::new(shared::AsLock::new(1));
-    let _reader_handles: Vec<_> = (0..4)
-        .map(|_| {
-            let table = Arc::clone(&table);
-            std::thread::spawn(move || {
-                // Continually grab read guards. We expect that readers can
-                // block the writer, so no point holding the reader for a long
-                // time since that will just slow down the benchmark
-                while *table.read() != 0 {}
-            })
-        })
-        .collect();
-
     b.iter(|| {
         let mut wg = table.write();
         wg.add_one();
