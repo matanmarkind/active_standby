@@ -118,6 +118,13 @@ impl<'w, T> WriteGuard<'w, T> {
 
         res
     }
+    pub fn update_tables_closure(&mut self, mut update: impl Fn(&mut T) + 'static + Sized + Send) {
+        let res = update(&mut self.table);
+
+        self.ops_to_replay.push(Box::new(update));
+
+        res
+    }
 }
 
 /// Dereferencing the WriteGuard will let you see the state of the
@@ -201,6 +208,22 @@ mod test {
         {
             let mut wg = aslock.write();
             wg.update_tables(PushVec { value: 2 });
+            assert_eq!(wg.len(), 1);
+            assert_eq!(aslock.read().len(), 0);
+        }
+
+        // When the write guard is dropped it publishes the changes to the readers.
+        assert_eq!(*aslock.read(), vec![2]);
+    }
+
+    #[test]
+    fn update_tables_closure() {
+        let aslock = AsLock::<Vec<i32>>::default();
+        assert_eq!(aslock.read().len(), 0);
+
+        {
+            let mut wg = aslock.write();
+            wg.update_tables_closure(|vec| vec.push(2));
             assert_eq!(wg.len(), 1);
             assert_eq!(aslock.read().len(), 0);
         }
