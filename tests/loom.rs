@@ -4,8 +4,10 @@
 #[cfg(loom)]
 #[cfg(test)]
 mod loom_tests {
-    use active_standby::primitives::lockless::{SyncWriter, Writer};
+    use active_standby::primitives::lockless::SyncWriter;
+    use active_standby::primitives::shared::AsLock;
     use active_standby::primitives::UpdateTables;
+    use loom::sync::Arc;
     use loom::thread;
 
     struct AddOne {}
@@ -28,9 +30,9 @@ mod loom_tests {
     }
 
     #[test]
-    fn single_thread() {
+    fn lockless_single_thread() {
         loom::model(|| {
-            let mut writer = SyncWriter::<i32>::new(1);
+            let writer = SyncWriter::<i32>::new(1);
             {
                 let mut wg = writer.write();
                 wg.update_tables(AddOne {});
@@ -53,9 +55,34 @@ mod loom_tests {
     }
 
     #[test]
-    fn multi_thread() {
+    fn shared_single_thread() {
         loom::model(|| {
-            let mut writer = SyncWriter::<i32>::new(1);
+            let table = Arc::new(AsLock::<i32>::new(1));
+            {
+                let mut wg = table.write();
+                wg.update_tables(AddOne {});
+            }
+
+            let table2 = Arc::clone(&table);
+            let val = thread::spawn(move || *table2.read()).join().unwrap();
+
+            {
+                let mut wg = table.write();
+                wg.update_tables(AddOne {});
+            }
+
+            assert_eq!(val, 2);
+
+            let table2 = Arc::clone(&table);
+            let val = thread::spawn(move || *table2.read()).join().unwrap();
+            assert_eq!(val, 3);
+        });
+    }
+
+    #[test]
+    fn lockless_multi_thread() {
+        loom::model(|| {
+            let writer = SyncWriter::<i32>::new(1);
             {
                 let mut wg = writer.write();
                 wg.update_tables(AddOne {});
@@ -85,6 +112,42 @@ mod loom_tests {
             assert!(reader_handle.join().is_ok());
 
             assert_eq!(*reader.read(), 0);
+        });
+    }
+
+    #[test]
+    fn shared_multi_thread() {
+        loom::model(|| {
+            let table = Arc::new(AsLock::<i32>::new(1));
+            {
+                let mut wg = table.write();
+                wg.update_tables(AddOne {});
+            }
+
+            let table2 = Arc::clone(&table);
+            let writer_handle = thread::spawn(move || {
+                {
+                    let mut wg = table2.write();
+                    wg.update_tables(AddOne {});
+                    wg.update_tables(AddOne {});
+                }
+                let mut wg = table2.write();
+                wg.update_tables(SetZero {});
+            });
+
+            let table2 = Arc::clone(&table);
+            let reader_handle = thread::spawn(move || {
+                assert_eq!(*table2.read() % 2, 0);
+            });
+
+            assert_eq!(*table.read() % 2, 0);
+
+            // Cannot join if there are any ReadGuards alive in this thread
+            // since this may deadlock.
+            assert!(writer_handle.join().is_ok());
+            assert!(reader_handle.join().is_ok());
+
+            assert_eq!(*table.read(), 0);
         });
     }
 }
