@@ -18,6 +18,9 @@ pub struct AsLock<T> {
     /// dropping it, to minimize lock contention. This is in the hopes that by
     /// waiting until the next time a WriteGuard is created, we give the readers
     /// time to switch to reading from the new active_table.
+    ///
+    /// This mutex is used to guarantee that 'write' is single threaded, and so
+    /// locking it must be done before calling to 'table.write'.
     ops_to_replay: Mutex<Vec<Box<dyn FnOnce(&mut T) + Send>>>,
 }
 
@@ -68,10 +71,13 @@ impl<T> AsLock<T> {
     /// 2. Replaying all of the updates that were applied to the last
     ///    WriteGuard.
     pub fn write(&self) -> WriteGuard<'_, T> {
+        // Grab ops_to_replay as the first thing in 'write' as a way to ensure
+        // that it is single threaded.
+        let mut ops_to_replay = self.ops_to_replay.lock().unwrap();
+
         let mut table = self.table.write();
 
         // Replay all ops on the standby table.
-        let mut ops_to_replay = self.ops_to_replay.lock().unwrap();
         for op in ops_to_replay.drain(..) {
             op(&mut table);
         }

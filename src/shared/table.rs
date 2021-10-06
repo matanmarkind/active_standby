@@ -3,26 +3,19 @@ use std::fmt;
 
 pub struct Table<T> {
     is_table0_active: RwLock<bool>,
-    write_lock: Mutex<()>,
     table0: RwLock<T>,
     table1: RwLock<T>,
 }
 
 pub struct TableWriteGuard<'w, T> {
     is_table0_active: &'w RwLock<bool>,
-    standby_table: RwLockWriteGuard<'w, T>,
-
-    // This field is never read from. It is just here for the side effect of
-    // keeping calls to Table::write single threaded.
-    #[allow(dead_code)]
-    write_guard: MutexGuard<'w, ()>,
+    standby_table: Option<RwLockWriteGuard<'w, T>>,
 }
 
 impl<T> Table<T> {
     pub fn from_identical(t1: T, t2: T) -> Table<T> {
         Table {
             is_table0_active: RwLock::new(true),
-            write_lock: Mutex::default(),
             table0: RwLock::new(t1),
             table1: RwLock::new(t2),
         }
@@ -48,26 +41,22 @@ impl<T> Table<T> {
         // By using an RwLock to guard the entire call of read & write, we
         // guarantee that a reader will never get stuck waiting for a writer to
         // release a given table.
-        let guard = self.is_table0_active.read().unwrap();
+        let guard = self.is_table0_active.read().unwrap(); // !!!!!!!!!!!!!!!!
         let is_table0_active = *guard;
 
         let active_table;
         if is_table0_active {
             active_table = self.table0.read().unwrap();
         } else {
-            active_table = self.table1.read().unwrap();
+            active_table = self.table1.read().unwrap(); // !!!!!!!!!!!!!!!!!!
         }
 
         active_table
     }
 
+    // Caller must ensure that 'write' is single threaded, or else we will block
+    // readers.
     pub fn write(&self) -> TableWriteGuard<'_, T> {
-        // Use write_guard to make sure that calls to 'write' are single
-        // threaded. This keeps writers from interacting with readers other than
-        // when waiting on readers to drop a pre-existing guard to the new
-        // standby table.
-        let write_guard = self.write_lock.lock().unwrap();
-
         // We don't need to worry about the RwLock being fair:
         // - Only 1 WriteGuard can exist at a time, and when it updates the
         //   active and standby tables, this is done while write locking
@@ -79,22 +68,32 @@ impl<T> Table<T> {
         //   guards, never incoming attempts to read lock.
         let standby_table;
         if *self.is_table0_active.read().unwrap() {
-            standby_table = self.table1.write().unwrap();
+            standby_table = self.table1.write().unwrap(); // !!!!!!!!!!!!!!!!
         } else {
             standby_table = self.table0.write().unwrap();
         }
 
         TableWriteGuard {
             is_table0_active: &self.is_table0_active,
-            write_guard,
-            standby_table,
+            standby_table: Some(standby_table),
         }
     }
 }
 
 impl<T> Drop for TableWriteGuard<'_, T> {
     fn drop(&mut self) {
-        let mut guard = self.is_table0_active.write().unwrap();
+        // Drop the WriteGuard to standby table before write guarding
+        // 'is_table0_active'. Otherwise this triggers TSAN's lock inversion
+        // (deadlock detector) because in 'read' we lock 'is_table0_active' and
+        // under that guard we lock the active table. Therefore here we need to
+        // release the lock on the standby table before locking
+        // 'is_table0_active'.
+        //
+        // This may be a false-positive similar to
+        // https://github.com/google/sanitizers/issues/814.
+        self.standby_table = None;
+
+        let mut guard = self.is_table0_active.write().unwrap(); // !!!!!!!!!!!!!!!!!!!
         *guard = !(*guard);
     }
 }
@@ -104,20 +103,20 @@ impl<'w, T> std::ops::Deref for TableWriteGuard<'w, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        &*self.standby_table
+        &*self.standby_table.as_ref().unwrap()
     }
 }
 
 impl<'w, T> std::ops::DerefMut for TableWriteGuard<'w, T> {
     fn deref_mut(&mut self) -> &mut T {
-        &mut *self.standby_table
+        &mut *self.standby_table.as_mut().unwrap()
     }
 }
 
 impl<'w, T: fmt::Debug> fmt::Debug for TableWriteGuard<'w, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TableWriteGuard")
-            .field("standby_table", &*self.standby_table)
+            .field("standby_table", &**self.standby_table.as_ref().unwrap())
             .finish()
     }
 }

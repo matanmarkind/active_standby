@@ -22,7 +22,7 @@
 // are using rust 2018.
 // https://doc.rust-lang.org/nightly/edition-guide/rust-2018/module-system/path-clarity.html
 extern crate test;
-use active_standby::primitives::lockless::{SyncWriter, Writer};
+use active_standby::primitives::lockless::Writer;
 use active_standby::primitives::UpdateTables;
 use more_asserts::*;
 use std::sync::Arc;
@@ -36,6 +36,7 @@ impl<'a> UpdateTables<'a, i32, ()> for AddOne {
         self.apply_first(table);
     }
 }
+
 struct SetZero {}
 impl<'a> UpdateTables<'a, i32, ()> for SetZero {
     fn apply_first(&mut self, table: &mut i32) {
