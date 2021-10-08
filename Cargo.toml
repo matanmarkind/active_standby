@@ -4,7 +4,7 @@ version = "0.8.5"
 authors = ["Matan Markind <matan.markind@gmail.com>"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
-description = "A concurrency primitive for high concurrency reads with a single writer."
+description = "A concurrency primitive for high concurrency reads."
 repository = "https://github.com/matanmarkind/active_standby"
 exclude = [
     "benches/records/*",
@@ -21,4 +21,4 @@ crossbeam = "0.8.1"
 maplit = "1.0.2"
 
 [target.'cfg(loom)'.dependencies]
-loom = "0.5.1"
+loom = "0.5.2"

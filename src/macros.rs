@@ -200,7 +200,7 @@ macro_rules! generate_shared_aslock {
                 }
             }
 
-            pub fn read(&self) -> $crate::types::RwLockReadGuard<'_, $Table $(< $($Inner),* >)?> {
+            pub fn read(&self) -> $crate::primitives::RwLockReadGuard<'_, $Table $(< $($Inner),* >)?> {
                 self.lock.read()
             }
         }

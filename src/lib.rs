@@ -98,12 +98,18 @@
 //! with the incremented value.
 
 mod macros;
-pub mod types;
+pub(crate) mod types;
 
 mod lockless;
 mod shared;
+
+/// The components used to build data structures in the active_standby model.
+/// Users should usually not need to utilize the primitives and can instead
+/// either utilize the pre-made collections, or generate the wrapper for their
+/// struct using one of the macros and then just implement the mutations for the
+/// generated WriteGuard.
 pub mod primitives {
-    pub use crate::types::UpdateTables;
+    pub use crate::types::{RwLock, RwLockReadGuard, RwLockWriteGuard, UpdateTables};
     pub mod lockless {
         pub use crate::lockless::read::{ReadGuard, Reader};
         pub use crate::lockless::write::{SyncWriteGuard, SyncWriter, WriteGuard, Writer};
@@ -113,8 +119,10 @@ pub mod primitives {
     }
 }
 
-/// AsLockHandle's for common collections. Each table type has its own
-/// AsLockHandle, as opposed to RwLock where you simply pass in the table. This
-/// is because of the 2 tables, which require being synchronized, and therefore
-/// are updated through the UpdateTables trait, instead of directly.
+
+/// Shared and lockless active_standby structs for common collections. Each
+/// table type has its own AsLock (shared) / AsLockHandle (lockless), as opposed
+/// to RwLock where you simply pass in the table. This is because users can't
+/// simply gain write access to the underlying table and then mutate it. Instead
+/// mutations are done through UpdateTables so that both tables will be updated.
 pub mod collections;
