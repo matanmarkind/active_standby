@@ -1,5 +1,13 @@
 // Run with:
-// RUST_BACKTRACE=full RUSTFLAGS='--cfg loom' cargo +nightly test --test loom --release
+//
+// $ RUST_BACKTRACE=full RUSTFLAGS='--cfg loom' cargo +nightly test --test loom
+// --release
+//
+// If there are errors you need additional flags to use checkpointing (see
+// docs):
+//
+// $ RUST_BACKTRACE=full RUSTFLAGS='--cfg loom' cargo +nightly test
+// --test="loom" --features="loom/checkpoint" -- --nocapture
 
 #[cfg(loom)]
 #[cfg(test)]

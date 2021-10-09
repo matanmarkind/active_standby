@@ -119,7 +119,6 @@ pub mod primitives {
     }
 }
 
-
 /// Shared and lockless active_standby structs for common collections. Each
 /// table type has its own AsLock (shared) / AsLockHandle (lockless), as opposed
 /// to RwLock where you simply pass in the table. This is because users can't
