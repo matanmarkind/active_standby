@@ -18,12 +18,12 @@
 ///
 /// See historical benchmark results in "active_standby/benches/records/".
 ///
-// 'test' is a special crate that requires introduction this way even though we
-// are using rust 2018.
+// 'test' is a special crate that requires extern crate even though we are using
+// rust 2018.
 // https://doc.rust-lang.org/nightly/edition-guide/rust-2018/module-system/path-clarity.html
 extern crate test;
 use active_standby::primitives::lockless::Writer;
-use active_standby::primitives::UpdateTables;
+use active_standby::primitives::{RwLock, UpdateTables};
 use more_asserts::*;
 use std::sync::Arc;
 
@@ -115,6 +115,105 @@ fn shared_wguard_without_rcontention(b: &mut test::bench::Bencher) {
     b.iter(|| {
         let mut wg = table.write();
         wg.add_one();
+    });
+}
+#[bench]
+fn rwlock_wguard_without_rcontention(b: &mut test::bench::Bencher) {
+    let table = Arc::new(RwLock::new(1));
+    b.iter(|| {
+        let mut wg = table.write().unwrap();
+        *wg += 1;
+    });
+}
+
+#[bench]
+fn lockless_wguard_rw_contention(b: &mut test::bench::Bencher) {
+    let table = lockless::AsLockHandle::new(1);
+
+    let _reader_handles: Vec<_> = (0..10)
+        .map(|_| {
+            let table = table.clone();
+            std::thread::spawn(move || {
+                // Continually grab read guards.
+                while *table.read() != 0 {
+                    // Hold the read guards to increase the chance of read 'contention'.
+                    std::thread::sleep(std::time::Duration::from_micros(10));
+                }
+            })
+        })
+        .collect();
+
+    let _writer_handle = {
+        let table = table.clone();
+        std::thread::spawn(move || loop {
+            let mut wg = table.write();
+            wg.add_one();
+        })
+    };
+
+    b.iter(|| {
+        let mut wg = table.write();
+        wg.add_one();
+    });
+}
+#[bench]
+fn shared_wguard_rw_contention(b: &mut test::bench::Bencher) {
+    let table = Arc::new(shared::AsLock::new(1));
+
+    let _reader_handles: Vec<_> = (0..10)
+        .map(|_| {
+            let table = Arc::clone(&table);
+            std::thread::spawn(move || {
+                // Continually grab read guards.
+                while *table.read() != 0 {
+                    // Hold the read guards to increase the chance of read 'contention'.
+                    std::thread::sleep(std::time::Duration::from_micros(10));
+                }
+            })
+        })
+        .collect();
+
+    let _writer_handle = {
+        let table = Arc::clone(&table);
+        std::thread::spawn(move || loop {
+            let mut wg = table.write();
+            wg.add_one();
+        })
+    };
+
+    b.iter(|| {
+        let mut wg = table.write();
+        wg.add_one();
+    });
+}
+#[bench]
+fn rwlock_wguard_rw_contention(b: &mut test::bench::Bencher) {
+    let table = Arc::new(RwLock::new(1));
+
+    let _reader_handles: Vec<_> = (0..10)
+        .map(|_| {
+            let table = Arc::clone(&table);
+            std::thread::spawn(move || {
+                // Continually grab read guards.
+                while *table.read().unwrap() != 0 {
+                    // Hold the read guards to increase the chance of read 'contention'.
+                    std::thread::sleep(std::time::Duration::from_micros(10));
+                }
+            })
+        })
+        .collect();
+
+    let _writer_handle = {
+        let table = Arc::clone(&table);
+        std::thread::spawn(move || loop {
+            let mut wg = table.write().unwrap();
+            *wg += 1;
+        })
+    };
+
+    b.iter(|| {
+        let mut wg = table.write().unwrap();
+        *wg += 1;
     });
 }
 
@@ -210,6 +309,42 @@ fn shared_rguard_rw_contention(
     });
 }
 
+fn rwlock_rguard_rw_contention(
+    b: &mut test::bench::Bencher,
+    num_readers: u32,
+    hold_write_guard: bool,
+) {
+    let table = Arc::new(RwLock::new(1));
+    let _reader_handles: Vec<_> = (0..num_readers)
+        .map(|_| {
+            let table = Arc::clone(&table);
+            std::thread::spawn(move || {
+                // Continually grab read guards.
+                while *table.read().unwrap() != 0 {
+                    // Hold the read guards to increase the change of read 'contention'.
+                    std::thread::sleep(std::time::Duration::from_micros(100));
+                }
+            })
+        })
+        .collect();
+
+    let _writer_handle = {
+        let table = Arc::clone(&table);
+        std::thread::spawn(move || loop {
+            let mut wg = table.write().unwrap();
+            if hold_write_guard {
+                std::thread::sleep(std::time::Duration::from_micros(100));
+            }
+            *wg += 1;
+        });
+    };
+
+    b.iter(|| {
+        let rg = table.read().unwrap();
+        assert_gt!(*rg, 0);
+    });
+}
+
 // The following section is the main thing we are interested in; how does
 // retreiving a read guard to the tables scale with lots of other readers and an
 // active writer. The tests are broken down as follows:
@@ -284,4 +419,38 @@ fn shared_rguard_writer_spinning_rw_contention_20(b: &mut test::bench::Bencher) 
 #[bench]
 fn shared_rguard_writer_spinning_rw_contention_30(b: &mut test::bench::Bencher) {
     shared_rguard_rw_contention(b, 30, false);
+}
+
+#[bench]
+fn rwlock_rguard_rw_contention_1(b: &mut test::bench::Bencher) {
+    rwlock_rguard_rw_contention(b, 1, true);
+}
+#[bench]
+fn rwlock_rguard_rw_contention_10(b: &mut test::bench::Bencher) {
+    rwlock_rguard_rw_contention(b, 10, true);
+}
+#[bench]
+fn rwlock_rguard_rw_contention_20(b: &mut test::bench::Bencher) {
+    rwlock_rguard_rw_contention(b, 20, true);
+}
+#[bench]
+fn rwlock_rguard_rw_contention_30(b: &mut test::bench::Bencher) {
+    rwlock_rguard_rw_contention(b, 30, true);
+}
+
+#[bench]
+fn rwlock_rguard_writer_spinning_rw_contention_1(b: &mut test::bench::Bencher) {
+    rwlock_rguard_rw_contention(b, 1, false);
+}
+#[bench]
+fn rwlock_rguard_writer_spinning_rw_contention_10(b: &mut test::bench::Bencher) {
+    rwlock_rguard_rw_contention(b, 10, false);
+}
+#[bench]
+fn rwlock_rguard_writer_spinning_rw_contention_20(b: &mut test::bench::Bencher) {
+    rwlock_rguard_rw_contention(b, 20, false);
+}
+#[bench]
+fn rwlock_rguard_writer_spinning_rw_contention_30(b: &mut test::bench::Bencher) {
+    rwlock_rguard_rw_contention(b, 30, false);
 }
