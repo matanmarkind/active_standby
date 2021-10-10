@@ -244,7 +244,6 @@ fn shared_rguard_no_contention(b: &mut test::bench::Bencher) {
 fn lockless_rguard_rw_contention(
     b: &mut test::bench::Bencher,
     num_readers: u32,
-    hold_write_guard: bool,
 ) {
     let table = lockless::AsLockHandle::new(1);
 
@@ -264,9 +263,7 @@ fn lockless_rguard_rw_contention(
     let table2 = table.clone();
     let _writer_handle = std::thread::spawn(move || loop {
         let mut wg = table2.write();
-        if hold_write_guard {
             std::thread::sleep(std::time::Duration::from_micros(100));
-        }
         wg.add_one();
     });
 
@@ -279,7 +276,6 @@ fn lockless_rguard_rw_contention(
 fn shared_rguard_rw_contention(
     b: &mut test::bench::Bencher,
     num_readers: u32,
-    hold_write_guard: bool,
 ) {
     let aslock = Arc::new(shared::AsLock::new(1));
     let _reader_handles: Vec<_> = (0..num_readers)
@@ -297,9 +293,7 @@ fn shared_rguard_rw_contention(
     let aslock2 = Arc::clone(&aslock);
     let _writer_handle = std::thread::spawn(move || loop {
         let mut wg = aslock2.write();
-        if hold_write_guard {
             std::thread::sleep(std::time::Duration::from_micros(100));
-        }
         wg.add_one();
     });
 
@@ -312,7 +306,6 @@ fn shared_rguard_rw_contention(
 fn rwlock_rguard_rw_contention(
     b: &mut test::bench::Bencher,
     num_readers: u32,
-    hold_write_guard: bool,
 ) {
     let table = Arc::new(RwLock::new(1));
     let _reader_handles: Vec<_> = (0..num_readers)
@@ -332,9 +325,7 @@ fn rwlock_rguard_rw_contention(
         let table = Arc::clone(&table);
         std::thread::spawn(move || loop {
             let mut wg = table.write().unwrap();
-            if hold_write_guard {
                 std::thread::sleep(std::time::Duration::from_micros(100));
-            }
             *wg += 1;
         });
     };
@@ -355,102 +346,51 @@ fn rwlock_rguard_rw_contention(
 
 #[bench]
 fn lockless_rguard_rw_contention_1(b: &mut test::bench::Bencher) {
-    lockless_rguard_rw_contention(b, 1, true);
+    lockless_rguard_rw_contention(b, 1);
 }
 #[bench]
 fn lockless_rguard_rw_contention_10(b: &mut test::bench::Bencher) {
-    lockless_rguard_rw_contention(b, 10, true);
+    lockless_rguard_rw_contention(b, 10);
 }
 #[bench]
 fn lockless_rguard_rw_contention_20(b: &mut test::bench::Bencher) {
-    lockless_rguard_rw_contention(b, 20, true);
+    lockless_rguard_rw_contention(b, 20);
 }
 #[bench]
 fn lockless_rguard_rw_contention_30(b: &mut test::bench::Bencher) {
-    lockless_rguard_rw_contention(b, 30, true);
-}
-
-#[bench]
-fn lockless_rguard_writer_spinning_rw_contention_1(b: &mut test::bench::Bencher) {
-    lockless_rguard_rw_contention(b, 1, false);
-}
-#[bench]
-fn lockless_rguard_writer_spinning_rw_contention_10(b: &mut test::bench::Bencher) {
-    lockless_rguard_rw_contention(b, 10, false);
-}
-#[bench]
-fn lockless_rguard_writer_spinning_rw_contention_20(b: &mut test::bench::Bencher) {
-    lockless_rguard_rw_contention(b, 20, false);
-}
-#[bench]
-fn lockless_rguard_writer_spinning_rw_contention_30(b: &mut test::bench::Bencher) {
-    lockless_rguard_rw_contention(b, 30, false);
+    lockless_rguard_rw_contention(b, 30);
 }
 
 #[bench]
 fn shared_rguard_rw_contention_1(b: &mut test::bench::Bencher) {
-    shared_rguard_rw_contention(b, 1, true);
+    shared_rguard_rw_contention(b, 1);
 }
 #[bench]
 fn shared_rguard_rw_contention_10(b: &mut test::bench::Bencher) {
-    shared_rguard_rw_contention(b, 10, true);
+    shared_rguard_rw_contention(b, 10);
 }
 #[bench]
 fn shared_rguard_rw_contention_20(b: &mut test::bench::Bencher) {
-    shared_rguard_rw_contention(b, 20, true);
+    shared_rguard_rw_contention(b, 20);
 }
 #[bench]
 fn shared_rguard_rw_contention_30(b: &mut test::bench::Bencher) {
-    shared_rguard_rw_contention(b, 30, true);
-}
-
-#[bench]
-fn shared_rguard_writer_spinning_rw_contention_1(b: &mut test::bench::Bencher) {
-    shared_rguard_rw_contention(b, 1, false);
-}
-#[bench]
-fn shared_rguard_writer_spinning_rw_contention_10(b: &mut test::bench::Bencher) {
-    shared_rguard_rw_contention(b, 10, false);
-}
-#[bench]
-fn shared_rguard_writer_spinning_rw_contention_20(b: &mut test::bench::Bencher) {
-    shared_rguard_rw_contention(b, 20, false);
-}
-#[bench]
-fn shared_rguard_writer_spinning_rw_contention_30(b: &mut test::bench::Bencher) {
-    shared_rguard_rw_contention(b, 30, false);
+    shared_rguard_rw_contention(b, 30);
 }
 
 #[bench]
 fn rwlock_rguard_rw_contention_1(b: &mut test::bench::Bencher) {
-    rwlock_rguard_rw_contention(b, 1, true);
+    rwlock_rguard_rw_contention(b, 1);
 }
 #[bench]
 fn rwlock_rguard_rw_contention_10(b: &mut test::bench::Bencher) {
-    rwlock_rguard_rw_contention(b, 10, true);
+    rwlock_rguard_rw_contention(b, 10);
 }
 #[bench]
 fn rwlock_rguard_rw_contention_20(b: &mut test::bench::Bencher) {
-    rwlock_rguard_rw_contention(b, 20, true);
+    rwlock_rguard_rw_contention(b, 20);
 }
 #[bench]
 fn rwlock_rguard_rw_contention_30(b: &mut test::bench::Bencher) {
-    rwlock_rguard_rw_contention(b, 30, true);
-}
-
-#[bench]
-fn rwlock_rguard_writer_spinning_rw_contention_1(b: &mut test::bench::Bencher) {
-    rwlock_rguard_rw_contention(b, 1, false);
-}
-#[bench]
-fn rwlock_rguard_writer_spinning_rw_contention_10(b: &mut test::bench::Bencher) {
-    rwlock_rguard_rw_contention(b, 10, false);
-}
-#[bench]
-fn rwlock_rguard_writer_spinning_rw_contention_20(b: &mut test::bench::Bencher) {
-    rwlock_rguard_rw_contention(b, 20, false);
-}
-#[bench]
-fn rwlock_rguard_writer_spinning_rw_contention_30(b: &mut test::bench::Bencher) {
-    rwlock_rguard_rw_contention(b, 30, false);
+    rwlock_rguard_rw_contention(b, 30);
 }
