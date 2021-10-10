@@ -38,10 +38,7 @@ pub struct Writer<T> {
     /// dropping it, to minimize lock contention. This is in the hopes that by
     /// waiting until the next time a WriteGuard is created, we give the readers
     /// time to switch to reading from the new active_table.
-    ///
-    /// Note that this is why Writer isn't Send, but we offer SyncWriter as an
-    /// easy alternative.
-    ops_to_replay: Vec<Box<dyn FnOnce(&mut T)>>,
+    ops_to_replay: Vec<Box<dyn FnOnce(&mut T) + Send>>,
 
     // Record the epoch of the readers after we swap the tables. This is used to
     // tell the Writer when it is safe to mutate the standby_table. Writer only
@@ -73,7 +70,7 @@ pub struct WriteGuard<'w, T> {
     // time we create a WriteGuard. We hold a FnOnce instead of an UpdateTables,
     // because UpdateTables is templated on the return type, which is only used
     // in apply_first.
-    ops_to_replay: &'w mut Vec<Box<dyn FnOnce(&mut T)>>,
+    ops_to_replay: &'w mut Vec<Box<dyn FnOnce(&mut T) + Send>>,
 
     // Used to record first_epoch_after_swap *after* we have swapped the active
     // and standby tables.
@@ -211,7 +208,7 @@ impl<'w, T> WriteGuard<'w, T> {
     /// it.
     pub fn update_tables<'a, R>(
         &'a mut self,
-        mut update: impl UpdateTables<'a, T, R> + 'static + Sized,
+        mut update: impl UpdateTables<'a, T, R> + 'static + Sized + Send,
     ) -> R {
         let res = update.apply_first(&mut self.table);
 
@@ -224,7 +221,7 @@ impl<'w, T> WriteGuard<'w, T> {
 
     pub fn update_tables_closure<R>(
         &mut self,
-        update: impl Fn(&mut T) -> R + 'static + Sized,
+        update: impl Fn(&mut T) -> R + 'static + Sized + Send,
     ) -> R {
         let res = update(&mut self.table);
         self.ops_to_replay.push(Box::new(move |table| {
@@ -280,10 +277,6 @@ impl<'w, T: fmt::Debug> fmt::Debug for WriteGuard<'w, T> {
 
 /// SyncWriter is a wrapper around Writer that can be sent and shared across
 /// threads.
-///
-/// Send - SyncWriter implements Send when T is Send by enfocing that all
-/// updates passed to the table are themselves Send. This is required because
-/// apply_second may be called from another thread.
 ///
 /// Sync - SyncWriter enforces this by manually enforcing that only 1 WriteGuard
 /// can be created at a time with a Mutex.
@@ -344,21 +337,11 @@ impl<T> SyncWriter<T> {
     }
 }
 
-/// Writer is made of 2 components.
-/// - Arc<Tables> which is Send + Sync if T is Send.
-/// - Vec<Updates> which is Send if the updates are.
-///
-/// We enforce that all updates passed to a SyncWriteGuard are Send, so
-/// therefore SyncWriter is Send if T is.
-unsafe impl<T> Send for SyncWriter<T> where T: Send {}
-
 /// We enforce Sync by making sure that the WriteGuard only exists when the
 /// MutexGuard exists.
 unsafe impl<T> Sync for SyncWriter<T> where SyncWriter<T>: Send {}
 
 /// Guard for a SyncWriter, not a WriteGuard that is Sync.
-///
-/// Same as a WriteGuard, but update_tables requires that updates are Send.
 pub struct SyncWriteGuard<'w, T> {
     _mtx_guard: Option<MutexGuard<'w, ()>>,
     write_guard: Option<UnsafeCell<WriteGuard<'w, T>>>,
