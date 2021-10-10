@@ -24,9 +24,7 @@ pub struct AsLock<T> {
     ops_to_replay: Mutex<Vec<Box<dyn FnOnce(&mut T) + Send>>>,
 }
 
-/// Guard for a SyncAsLock, not a WriteGuard that is Sync.
-///
-/// Same as a WriteGuard, but update_tables requires that updates are Send.
+/// Guard used for updating the tables.
 pub struct WriteGuard<'w, T> {
     table: TableWriteGuard<'w, T>,
     ops_to_replay: MutexGuard<'w, Vec<Box<dyn FnOnce(&mut T) + Send>>>,

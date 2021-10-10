@@ -6,7 +6,7 @@
 //!   write locked, so readers never face contention.
 //! - Standby - this is the table the the Writer mutates. A writer should face
 //!   minimal contention retrieving this table for mutation since Readers move
-//!   to reading the Active table when the tables are swapped.
+//!   to the Active table when the tables are swapped.
 //!
 //! The cost of providing no contention to readers, and minimal contention to
 //! writers is:
@@ -19,22 +19,24 @@
 //!
 //! The usage is meant to be similar to a RwLock. Some of the inspiration came
 //! from the [left_right](https://crates.io/crates/left-right) crate, so feel
-//! free to check that out. The main differences focus on trying to make the API
-//! closer to using an RwLock, to simplify the user experience.
+//! free to check that out. The main differences focus on trying to simplify the
+//! client (creating data structures) and user (using data structures)
+//! experiences; primarily focused on trying to mimic the API/usage of an
+//! RwLock.
 //!
 //! There are 2 flavors of this algorithm that we offer:
 //! 1. Lockless - this variant trades off increased performance against changing
 //!    the API to be less like an RwLock. This avoids the cost of performing
 //!    synchronization on reads, but this requires that each thread/task that is
 //!    going to access the tables, registers in advance. Therefore this centers
-//!    around the AsLockHandle, which is conceptually similar to the Arc<RwLock>
-//!    (you don't wrap it in a separate Arc).
+//!    around the AsLockHandle, which is conceptually similar to Arc\<RwLock>
+//!    (i.e. you clone the AsLockHandle and pass the new one to other threads).
 //! 2. Shared - this centers around using an AsLock, which is meant to feel like
-//!    an RwLock. These structs can be shared between threads by passing cloning
-//!    & sending an Arc<AsLock>. The main difference is that instead of using
-//!    AsLock<Vec<T>>, you would use vec::shared::AsLock<T>. This is because
-//!    both tables must be updated, so users can't just dereference and mutate
-//!    the underlying table.
+//!    an RwLock. These structs can be shared between threads by cloning &
+//!    sending an Arc\<AsLock> (like with RwLock). The main difference is that
+//!    instead of using AsLock\<Vec\<T>>, you would use vec::shared::AsLock\<T>.
+//!    This is because both tables must be updated, so users can't just
+//!    dereference and mutate the underlying table.
 //!
 //! An example of where the shared variant can be preferable is a Tonic service.
 //! There you don't spawn a set of tasks/threads where you can pass each of them
@@ -43,17 +45,17 @@
 //!
 //! A result of having the two separate tables is that batching becomes more
 //! viable. You can grab a ReadGuard, and handle multiple requests without
-//! worrying about :tarving the writer since it will be able to work on the
-//! standby table, as opposed to with an RwLock. This means multiple requests
-//! can be handled without having to relock the active_table. Similarly you can
-//! batch with the Writer without starving the Readers.
+//! worrying about starving the writer since the writer can work on the standby
+//! table, as opposed to with an RwLock. This means multiple requests can be
+//! handled without having to relock the active_table. Similarly you can batch
+//! with the Writer without starving the Readers.
 //!
 //! We provide 2 modules:
 //! 1. primitives - The components used to build data structures in the
-//!    active_standby model. Users should usually don't need to utilize the
-//!    primitives and can instead either utilize the pre-made collections, or
-//!    generate the wrapper for their struct using one of the macros and then
-//!    just implement the mutations for the generated WriteGuard.
+//!    active_standby model. Users usually don't need to utilize the primitives
+//!    and can instead either utilize the pre-made collections, or generate the
+//!    wrapper for their struct using one of the macros and then just implement
+//!    the mutable API for the generated WriteGuard.
 //! 2. collections - Shared and lockless active_standby structs for common
 //!    collections. Each table type has its own AsLock (shared) / AsLockHandle
 //!    (lockless), as opposed to RwLock where you simply pass in the table. This

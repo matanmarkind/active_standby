@@ -103,7 +103,7 @@ fn plain_atomicbool(b: &mut test::bench::Bencher) {
 // to release the table.
 #[bench]
 fn lockless_wguard_without_rcontention(b: &mut test::bench::Bencher) {
-    let mut writer = Writer::<i32>::new(1);
+    let writer = Writer::<i32>::new(1);
     b.iter(|| {
         let mut wg = writer.write();
         wg.update_tables(AddOne {});

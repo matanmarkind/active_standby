@@ -257,8 +257,8 @@ impl<'w, T: fmt::Debug> fmt::Debug for InnerWriteGuard<'w, T> {
 /// Writer is a wrapper around InnerWriter that can be sent and shared across
 /// threads.
 ///
-/// Sync - Writer enforces this by manually enforcing that only 1 InnerWriteGuard
-/// can be created at a time with a Mutex.
+/// Sync - Writer ensures this by manually enforcing that only 1 WriteGuard can
+/// be created at a time with a Mutex.
 pub struct Writer<T> {
     // Used to lock 'write'. We can't use Mutex<InnerWriter> because then locking
     // would return MutexGuard<InnerWriter>. Then if we try to crete a InnerWriteGuard,
@@ -334,7 +334,7 @@ impl<T: fmt::Debug> fmt::Debug for Writer<T> {
 /// MutexGuard exists.
 unsafe impl<T> Sync for Writer<T> where Writer<T>: Send {}
 
-/// Guard for a Writer, not a InnerWriteGuard that is Sync.
+/// Guard used for updating the tables.
 pub struct WriteGuard<'w, T> {
     _mtx_guard: Option<MutexGuard<'w, ()>>,
     write_guard: Option<UnsafeCell<InnerWriteGuard<'w, T>>>,
@@ -435,7 +435,7 @@ mod test {
 
     #[test]
     fn one_write_guard() {
-        let mut writer = Writer::<Vec<i32>>::default();
+        let writer = Writer::<Vec<i32>>::default();
         let _wg = writer.write();
 
         // If we uncomment this line the program fails to compile due to a
@@ -460,7 +460,7 @@ mod test {
 
     #[test]
     fn publish_update() {
-        let mut writer = Writer::<Vec<i32>>::default();
+        let writer = Writer::<Vec<i32>>::default();
         let reader = writer.new_reader();
         assert_eq!(reader.read().len(), 0);
 
@@ -494,7 +494,7 @@ mod test {
 
     #[test]
     fn multi_apply() {
-        let mut writer = Writer::<Vec<i32>>::default();
+        let writer = Writer::<Vec<i32>>::default();
         {
             let mut wg = writer.write();
             wg.update_tables(PushVec { value: 2 });
@@ -509,7 +509,7 @@ mod test {
 
     #[test]
     fn multi_publish() {
-        let mut writer = Writer::<Vec<Box<i32>>>::default();
+        let writer = Writer::<Vec<Box<i32>>>::default();
         {
             let mut wg = writer.write();
             wg.update_tables(PushVec { value: Box::new(2) });
@@ -543,7 +543,7 @@ mod test {
 
     #[test]
     fn multi_thread() {
-        let mut writer = Writer::<Vec<i32>>::default();
+        let writer = Writer::<Vec<i32>>::default();
         let reader = writer.new_reader();
         let handler = thread::spawn(move || {
             while *reader.read() != vec![2, 3, 5] {
@@ -575,7 +575,7 @@ mod test {
         // Show that when the Writer is dropped, Readers remain valid.
         let reader;
         {
-            let mut writer = Writer::<Vec<i32>>::default();
+            let writer = Writer::<Vec<i32>>::default();
             reader = writer.new_reader();
 
             {
@@ -592,7 +592,7 @@ mod test {
 
     #[test]
     fn debug_str() {
-        let mut writer = Writer::<Vec<i32>>::default();
+        let writer = Writer::<Vec<i32>>::default();
         let reader = writer.new_reader();
         assert_eq!(format!("{:?}", writer), "Writer { num_ops_to_replay: 0 }");
         {
@@ -613,7 +613,7 @@ mod test {
     #[test]
     fn mutable_ref() {
         // Show that when the Writer is dropped, Readers remain valid.
-        let mut writer = Writer::<Vec<i32>>::default();
+        let writer = Writer::<Vec<i32>>::default();
         let reader = writer.new_reader();
 
         {

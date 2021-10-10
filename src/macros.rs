@@ -5,24 +5,24 @@
 // - https://doc.rust-lang.org/stable/rustdoc/documentation-tests.html#documenting-macros
 // - doc tests mock another crate utilizing the macro.
 
-/// These macro automatically generates an easy to use interface for interacting
-/// with an ActiveStandby data structure. Note that this is done for each
-/// underlying table, as opposed to an RwLock which is generic over all
-/// underlying types. This is because there are really 2 underlying tables which
-/// need to be kept in sync. The client adds mutability to the table is by
-/// creating an impl for the generated WriteGuard.
-///
-/// This macro is valid for templated types, it doesn't have to be concrete. The
-/// macro can't handle paths, so you can't pass 'std::collections::HashMap'. In
-/// such a case just put 'use std::collections::HashMap' right before the macro
-/// invocation.
-///
-/// For a simple example check out crate level docs or bench.rs. For larger
-/// examples, check out active_standby::collections.
+// These macro automatically generates an easy to use interface for interacting
+// with an ActiveStandby data structure. Note that this is done for each
+// underlying table, as opposed to an RwLock which is generic over all
+// underlying types. This is because there are really 2 underlying tables which
+// need to be kept in sync. The client adds mutability to the table is by
+// creating an impl for the generated WriteGuard.
+//
+// This macro is valid for templated types, it doesn't have to be concrete. The
+// macro can't handle paths, so you can't pass 'std::collections::HashMap'. In
+// such a case just put 'use std::collections::HashMap' right before the macro
+// invocation.
+//
+// For a simple example check out crate level docs or bench.rs. For larger
+// examples, check out active_standby::collections.
 
 /// Generates an AsLockHandle for the type passed in. This follows the lockless
 /// model, meaning that reads don't perform synchronization, but that the
-/// resultant AsLockHandle cannot be shared across threads. Though it can be
+/// resultant AsLockHandle cannot be shared across threads; though it can be
 /// cloned and sent across threads.
 #[macro_export]
 macro_rules! generate_lockless_aslockhandle {
