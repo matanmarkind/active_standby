@@ -100,7 +100,9 @@ impl<T> Drop for Reader<T> {
 
 impl<T: fmt::Debug> fmt::Debug for Reader<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Reader").finish()
+        f.debug_struct("Reader")
+            .field("num_readers", &self.readers.lock().unwrap().len())
+            .finish()
     }
 }
 

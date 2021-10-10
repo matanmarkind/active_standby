@@ -342,9 +342,14 @@ mod lockless_test {
             wg.insert(12, -1);
         }
 
+        assert_eq!(format!("{:?}", table), "AsLockHandle { writer: Writer { num_ops_to_replay: 1 }, reader: Reader { num_readers: 1 } }");
         assert_eq!(
-            format!("{:?}", table),
-            "AsLockHandle { reader: ReadGuard { active_table: {12: -1} } }",
+            format!("{:?}", table.write()),
+            "WriteGuard { num_ops_to_replay: 0, standby_table: TableWriteGuard { standby_table: {12: -1} } }",
+        );
+        assert_eq!(
+            format!("{:?}", table.read()),
+            "ReadGuard { active_table: {12: -1} }",
         );
     }
 }
@@ -508,9 +513,14 @@ mod shared_test {
             wg.insert(12, -1);
         }
 
+        assert_eq!(format!("{:?}", table), "AsLock { num_ops_to_replay: 1 }",);
         assert_eq!(
-            format!("{:?}", table),
-            "AsLock { reader: ShardedLockReadGuard { lock: ShardedLock { data: {12: -1} } } }",
+            format!("{:?}", table.write()),
+            "WriteGuard { num_ops_to_replay: 0, standby_table: TableWriteGuard { standby_table: {12: -1} } }",
+        );
+        assert_eq!(
+            format!("{:?}", table.read()),
+            "ShardedLockReadGuard { lock: ShardedLock { data: {12: -1} } }",
         );
     }
 }

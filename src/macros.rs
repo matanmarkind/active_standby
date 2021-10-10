@@ -34,7 +34,7 @@ macro_rules! generate_lockless_aslockhandle {
         >)?
     ) => {
         struct Writer$(< $($Inner),* >)? {
-            writer: $crate::primitives::lockless::SyncWriter<$Table $(< $($Inner),* >)? >,
+            pub writer: $crate::primitives::lockless::Writer<$Table $(< $($Inner),* >)? >,
         }
 
         impl$(< $($Inner),* >)? Writer$(< $($Inner),* >)? {
@@ -43,7 +43,7 @@ macro_rules! generate_lockless_aslockhandle {
                 t2: $Table $(< $($Inner),* >)?
             ) -> Writer$(< $($Inner),* >)? {
                 Writer {
-                    writer: $crate::primitives::lockless::SyncWriter::from_identical(t1, t2),
+                    writer: $crate::primitives::lockless::Writer::from_identical(t1, t2),
                 }
             }
 
@@ -59,13 +59,21 @@ macro_rules! generate_lockless_aslockhandle {
         }
 
         pub struct WriteGuard<'w, $($($Inner),*)?> {
-            guard: $crate::primitives::lockless::SyncWriteGuard<'w, $Table $(< $($Inner),* >)?>,
+            guard: $crate::primitives::lockless::WriteGuard<'w, $Table $(< $($Inner),* >)?>,
         }
 
         impl<'w, $($($Inner),*)?> std::ops::Deref for WriteGuard<'w, $($($Inner),*)?> {
             type Target = $Table$(< $($Inner),* >)?;
             fn deref(&self) -> &Self::Target {
                 &*self.guard
+            }
+        }
+
+        impl<'w, $($($Inner),*)?> std::fmt::Debug for WriteGuard<'w, $($($Inner),*)?>
+            where $Table$(<$($Inner),*>)? : std::fmt::Debug,
+        {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                self.guard.fmt(f)
             }
         }
 
@@ -122,7 +130,8 @@ macro_rules! generate_lockless_aslockhandle {
         {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 f.debug_struct("AsLockHandle")
-                    .field("reader", &self.read())
+                    .field("writer", &self.writer.writer)
+                    .field("reader", &self.reader)
                     .finish()
             }
         }
@@ -142,7 +151,7 @@ macro_rules! generate_shared_aslock {
         >)?
     ) => {
         pub struct AsLock$(< $($Inner),* >)? {
-            lock: $crate::primitives::shared::AsLock<$Table $(< $($Inner),* >)? >,
+            table: $crate::primitives::shared::AsLock<$Table $(< $($Inner),* >)? >,
         }
 
         impl$(< $($Inner),* >)? AsLock$(< $($Inner),* >)? {
@@ -151,18 +160,18 @@ macro_rules! generate_shared_aslock {
                 t2: $Table $(< $($Inner),* >)?
             ) -> AsLock$(< $($Inner),* >)? {
                 AsLock {
-                    lock: $crate::primitives::shared::AsLock::from_identical(t1, t2),
+                    table: $crate::primitives::shared::AsLock::from_identical(t1, t2),
                 }
             }
 
             pub fn write(&self) -> WriteGuard<'_, $($($Inner),*)?> {
                 WriteGuard {
-                    guard: self.lock.write(),
+                    guard: self.table.write(),
                 }
             }
 
             pub fn read(&self) -> $crate::primitives::RwLockReadGuard<'_, $Table $(< $($Inner),* >)?> {
-                self.lock.read()
+                self.table.read()
             }
         }
 
@@ -186,9 +195,7 @@ macro_rules! generate_shared_aslock {
             where $Table$(<$($Inner),*>)? : std::fmt::Debug,
         {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                f.debug_struct("AsLock")
-                    .field("reader", &self.read())
-                    .finish()
+                self.table.fmt(f)
             }
         }
 
@@ -200,6 +207,14 @@ macro_rules! generate_shared_aslock {
             type Target = $Table$(< $($Inner),* >)?;
             fn deref(&self) -> &Self::Target {
                 &*self.guard
+            }
+        }
+
+        impl<'w, $($($Inner),*)?> std::fmt::Debug for WriteGuard<'w, $($($Inner),*)?>
+            where $Table$(<$($Inner),*>)? : std::fmt::Debug,
+        {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                self.guard.fmt(f)
             }
         }
     }

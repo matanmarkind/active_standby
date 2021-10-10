@@ -12,7 +12,7 @@
 #[cfg(loom)]
 #[cfg(test)]
 mod loom_tests {
-    use active_standby::primitives::lockless::SyncWriter;
+    use active_standby::primitives::lockless::Writer;
     use active_standby::primitives::shared::AsLock;
     use active_standby::primitives::UpdateTables;
     use loom::sync::Arc;
@@ -40,7 +40,7 @@ mod loom_tests {
     #[test]
     fn lockless_single_thread() {
         loom::model(|| {
-            let writer = SyncWriter::<i32>::new(1);
+            let writer = Writer::<i32>::new(1);
             {
                 let mut wg = writer.write();
                 wg.update_tables(AddOne {});
@@ -90,7 +90,7 @@ mod loom_tests {
     #[test]
     fn lockless_multi_thread() {
         loom::model(|| {
-            let writer = SyncWriter::<i32>::new(1);
+            let writer = Writer::<i32>::new(1);
             {
                 let mut wg = writer.write();
                 wg.update_tables(AddOne {});

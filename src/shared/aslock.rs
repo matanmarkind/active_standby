@@ -96,7 +96,10 @@ impl<T> AsLock<T> {
 
 impl<T: fmt::Debug> fmt::Debug for AsLock<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("AsLock").finish()
+        let num_ops_to_replay = self.ops_to_replay.lock().unwrap().len();
+        f.debug_struct("AsLock")
+            .field("num_ops_to_replay", &num_ops_to_replay)
+            .finish()
     }
 }
 
@@ -318,7 +321,7 @@ mod test {
     #[test]
     fn debug_str() {
         let aslock = AsLock::<Vec<i32>>::default();
-        assert_eq!(format!("{:?}", aslock), "AsLock");
+        assert_eq!(format!("{:?}", aslock), "AsLock { num_ops_to_replay: 0 }");
         {
             let mut wg = aslock.write();
             wg.update_tables(PushVec { value: 2 });
@@ -326,7 +329,7 @@ mod test {
                 format!("{:?}", wg),
                 "WriteGuard { num_ops_to_replay: 1, standby_table: TableWriteGuard { standby_table: [2] } }");
         }
-        assert_eq!(format!("{:?}", aslock), "AsLock");
+        assert_eq!(format!("{:?}", aslock), "AsLock { num_ops_to_replay: 1 }");
         // The aliased shared lock shows up in this debug. What we mostly care
         // about is that this says ReadGuard and shows the underlying data. It's
         // fine to update this if we ever change the underlying RwLock.

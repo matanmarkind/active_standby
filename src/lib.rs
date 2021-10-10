@@ -161,7 +161,7 @@ pub mod primitives {
     pub use crate::types::{RwLock, RwLockReadGuard, RwLockWriteGuard, UpdateTables};
     pub mod lockless {
         pub use crate::lockless::read::{ReadGuard, Reader};
-        pub use crate::lockless::write::{SyncWriteGuard, SyncWriter, WriteGuard, Writer};
+        pub use crate::lockless::write::{WriteGuard, Writer};
     }
     pub mod shared {
         pub use crate::shared::aslock::{AsLock, WriteGuard};
