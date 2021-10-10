@@ -5,67 +5,25 @@
 // - https://doc.rust-lang.org/stable/rustdoc/documentation-tests.html#documenting-macros
 // - doc tests mock another crate utilizing the macro.
 
-/// This macro automatically generates an easy to use interface for interacting
-/// with an ActiveStandby data structure. The resulting AsLockHandle<T> can be
-/// thought of as similar to Arc<RwLock<T>>.
+/// These macro automatically generates an easy to use interface for interacting
+/// with an ActiveStandby data structure. Note that this is done for each
+/// underlying table, as opposed to an RwLock which is generic over all
+/// underlying types. This is because there are really 2 underlying tables which
+/// need to be kept in sync. The client adds mutability to the table is by
+/// creating an impl for the generated WriteGuard.
 ///
-/// The user adds mutability to the table is by creating an impl for the
-/// generated WriteGuard.
+/// This macro is valid for templated types, it doesn't have to be concrete. The
+/// macro can't handle paths, so you can't pass 'std::collections::HashMap'. In
+/// such a case just put 'use std::collections::HashMap' right before the macro
+/// invocation.
 ///
-/// The macro can't handle paths, so you can't pass 'std::collections::HashMap'.
-/// In such a case just put 'use std::collections::HashMap' right before the
-/// macro invocation.
-///
-/// For a simple example check out bench.rs. For larger examples, check out
-/// active_standby::collections.
-///
-/// ```
-/// pub mod aslock {
-///     use active_standby::primitives::UpdateTables;
-///
-///     // Generate an AsLockHandle, which will give wait free read accees
-///     // to the underlying data. This also generates the associated WriteGuard
-///     // which is used to mutate the data. Users should interact with this
-///     // similarly to Arc<RwLock<i32>>.
-///     active_standby::generate_lockless_aslockhandle!(i32);
-///
-///     // Client's must implement the mutable interface that they want to offer
-///     // users of their active standby data structure. This is not automatically
-///     // generated.
-///     impl<'w> WriteGuard<'w> {
-///         pub fn add_one(&mut self) {
-///             struct AddOne {}
-///             
-///             impl<'a> UpdateTables<'a, i32, ()> for AddOne {
-///                 fn apply_first(&mut self, table: &'a mut i32) {
-///                     *table = *table + 1;
-///                 }
-///                 fn apply_second(mut self, table: &mut i32) {
-///                     self.apply_first(table);
-///                 }
-///             }
-///     
-///             self.guard.update_tables(AddOne {})
-///         }
-///     }
-/// }
-///
-/// fn main() {
-///     let mut table = aslock::AsLockHandle::new(0);
-///     let mut table2 = table.clone();
-///     let handle = std::thread::spawn(move || {
-///         while *table2.read() != 1 {
-///             std::thread::sleep(std::time::Duration::from_micros(100));
-///         }
-///     });
-///
-///     {
-///         let mut wg = table.write();
-///         wg.add_one();
-///     }
-///     handle.join();
-/// }
-/// ```
+/// For a simple example check out crate level docs or bench.rs. For larger
+/// examples, check out active_standby::collections.
+
+/// Generates an AsLockHandle for the type passed in. This follows the lockless
+/// model, meaning that reads don't perform synchronization, but that the
+/// resultant AsLockHandle cannot be shared across threads. Though it can be
+/// cloned and sent across threads.
 #[macro_export]
 macro_rules! generate_lockless_aslockhandle {
     ( $Table:ident
@@ -171,6 +129,9 @@ macro_rules! generate_lockless_aslockhandle {
     }
 }
 
+/// Generates an AsLock for the type passed in. This follows the shared model,
+/// meaning that you can share this across threads by wrapping it in an Arc like
+/// an RwLock.
 #[macro_export]
 macro_rules! generate_shared_aslock {
     ( $Table:ident
