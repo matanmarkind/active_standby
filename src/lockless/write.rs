@@ -6,7 +6,11 @@ use std::cell::UnsafeCell;
 use std::fmt;
 
 /// Writer is the entry point for using active_standy primitives, and for
-/// updating the underlying table.
+/// updating the underlying table. It is responsible for creating the tables,
+/// and is how to create the first reader. Writer is responsible for handling
+/// the synchronization with Readers, making sure to update them to the new
+/// active table when swapped, and making sure not to mutate the standby table
+/// if there are any Readers remaining.
 ///
 /// In order to interact with the underlying tables you must create a
 /// WriteGuard. Only 1 Writer can exist for a given table.
@@ -274,21 +278,22 @@ impl<'w, T: fmt::Debug> fmt::Debug for WriteGuard<'w, T> {
     }
 }
 
-/// SyncWriter is a wrapper around Writer that can be send and shared across
+/// SyncWriter is a wrapper around Writer that can be sent and shared across
 /// threads.
 ///
 /// Send - SyncWriter implements Send when T is Send by enfocing that all
 /// updates passed to the table are themselves Send. This is required because
 /// apply_second may be called from another thread.
 ///
-/// Sync - SyncWriter enforces that being Sync by manually enforcing that only 1
-/// WriteGuard can be created at a time with a Mutex.
+/// Sync - SyncWriter enforces this by manually enforcing that only 1 WriteGuard
+/// can be created at a time with a Mutex.
 #[derive(Debug)]
 pub struct SyncWriter<T> {
     // Used to lock 'write'. We can't use Mutex<Writer> because then locking
     // would return MutexGuard<Writer>. Then if we try to crete a WriteGuard,
     // this would create a struct that refers to itself. Instead we use the C++
-    // style unique_lock, to guard 'writer'.
+    // style unique_lock, to guard 'writer'. This is basically how Mutex is
+    // implemented.
     mtx: Mutex<()>,
 
     // UnsafeCell is used for interior mutability.
@@ -347,7 +352,7 @@ impl<T> SyncWriter<T> {
 /// therefore SyncWriter is Send if T is.
 unsafe impl<T> Send for SyncWriter<T> where T: Send {}
 
-/// We enforce Sync by making sure that the WriteGuard only exists whent he
+/// We enforce Sync by making sure that the WriteGuard only exists when the
 /// MutexGuard exists.
 unsafe impl<T> Sync for SyncWriter<T> where SyncWriter<T>: Send {}
 
