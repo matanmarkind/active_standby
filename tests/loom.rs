@@ -108,7 +108,7 @@ mod loom_tests {
         // that spawned threads will run in. In this example, either the writer
         // or reader could run before the other. Loom catches this because the
         // epoch counter shows a different value when trying to claim a
-        // WriteGuard.
+        // WriteGuard. https://github.com/tokio-rs/loom/issues/233.
         loom::model(|| {
             let writer = Writer::<i32>::new(0);
 
