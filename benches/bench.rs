@@ -241,10 +241,7 @@ fn shared_rguard_no_contention(b: &mut test::bench::Bencher) {
 
 // The main test, since our core guarantee is that reads are always wait free
 // regardless of read and write usage.
-fn lockless_rguard_rw_contention(
-    b: &mut test::bench::Bencher,
-    num_readers: u32,
-) {
+fn lockless_rguard_rw_contention(b: &mut test::bench::Bencher, num_readers: u32) {
     let table = lockless::AsLockHandle::new(1);
 
     let _reader_handles: Vec<_> = (0..num_readers)
@@ -263,7 +260,7 @@ fn lockless_rguard_rw_contention(
     let table2 = table.clone();
     let _writer_handle = std::thread::spawn(move || loop {
         let mut wg = table2.write();
-            std::thread::sleep(std::time::Duration::from_micros(100));
+        std::thread::sleep(std::time::Duration::from_micros(100));
         wg.add_one();
     });
 
@@ -273,10 +270,7 @@ fn lockless_rguard_rw_contention(
     });
 }
 
-fn shared_rguard_rw_contention(
-    b: &mut test::bench::Bencher,
-    num_readers: u32,
-) {
+fn shared_rguard_rw_contention(b: &mut test::bench::Bencher, num_readers: u32) {
     let aslock = Arc::new(shared::AsLock::new(1));
     let _reader_handles: Vec<_> = (0..num_readers)
         .map(|_| {
@@ -293,7 +287,7 @@ fn shared_rguard_rw_contention(
     let aslock2 = Arc::clone(&aslock);
     let _writer_handle = std::thread::spawn(move || loop {
         let mut wg = aslock2.write();
-            std::thread::sleep(std::time::Duration::from_micros(100));
+        std::thread::sleep(std::time::Duration::from_micros(100));
         wg.add_one();
     });
 
@@ -303,10 +297,7 @@ fn shared_rguard_rw_contention(
     });
 }
 
-fn rwlock_rguard_rw_contention(
-    b: &mut test::bench::Bencher,
-    num_readers: u32,
-) {
+fn rwlock_rguard_rw_contention(b: &mut test::bench::Bencher, num_readers: u32) {
     let table = Arc::new(RwLock::new(1));
     let _reader_handles: Vec<_> = (0..num_readers)
         .map(|_| {
@@ -325,7 +316,7 @@ fn rwlock_rguard_rw_contention(
         let table = Arc::clone(&table);
         std::thread::spawn(move || loop {
             let mut wg = table.write().unwrap();
-                std::thread::sleep(std::time::Duration::from_micros(100));
+            std::thread::sleep(std::time::Duration::from_micros(100));
             *wg += 1;
         });
     };
