@@ -27,12 +27,12 @@ There are 2 flavors of this algorithm that we offer:
    API to be less like an RwLock. This avoids the cost of performing
    synchronization on reads, but this requires that each thread/task that is
    going to access the tables, registers in advance. Therefore this centers
-   around the AsLockHandle, which is conceptually similar to Arc<RwLock> (i.e.
+   around the AsLockHandle, which is conceptually similar to Arc\<RwLock> (i.e.
    you clone the AsLockHandle and pass the new one to other threads).
 2. Shared - this centers around using an AsLock, which is meant to feel like an
    RwLock. These structs can be shared between threads by cloning & sending an
-   Arc<AsLock> (like with RwLock). The main difference is that instead of using
-   AsLock<Vec<T>>, you would use vec::shared::AsLock<T>. This is because both
+   Arc\<AsLock> (like with RwLock). The main difference is that instead of using
+   AsLock\<Vec\<T>>, you would use vec::shared::AsLock\<T>. This is because both
    tables must be updated, so users can't just dereference and mutate the
    underlying table.
 
@@ -138,7 +138,7 @@ fn main() {
 ```
 
 If your table has large elements, you may want to save memory by only holding
-each element once (e.g. vec::AsLockHandle<Arc<i32>>). This can be done safely so
+each element once (e.g. vec::AsLockHandle\<Arc\<i32>>). This can be done safely so
 long as no elements of the table are mutated, only inserted and removed. Using a
 vector as an example, if you wanted a function that increases the value of the
 first element by 1, you would not increment the value behind the Arc. You would
