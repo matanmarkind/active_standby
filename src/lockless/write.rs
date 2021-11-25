@@ -310,8 +310,16 @@ impl<T> Writer<T> {
 
     pub fn new_reader(&self) -> Reader<T> {
         let _mtx_guard = self.mtx.lock().unwrap();
+        let mut _lock = Some(self.mtx.lock().unwrap());
+
         let writer = unsafe { &*self.writer.get() };
-        writer.new_reader()
+        let reader = writer.new_reader();
+
+        // Don't delete the lock until after finish with the writer.
+        std::sync::atomic::compiler_fence(Ordering::SeqCst);
+        _lock = None;
+
+        reader
     }
 }
 
@@ -365,8 +373,10 @@ impl<'w, T> WriteGuard<'w, T> {
 
 impl<'w, T> Drop for WriteGuard<'w, T> {
     fn drop(&mut self) {
-        // Make sure to destroy the write guard before the mutex.
         self.write_guard = None;
+
+        // Make sure to destroy the write guard before the mutex.
+        std::sync::atomic::compiler_fence(Ordering::SeqCst);
         self._mtx_guard = None;
     }
 }
