@@ -120,19 +120,20 @@ mod loom_tests {
                 thread::spawn(move || {
                     let (cond, cv) = &*cond_cv;
 
-                    let mut wg = Some(writer.write());
-                    wg.as_mut().unwrap().update_tables(AddOne {});
+                    let mut step_num;
+                    {
+                        let mut wg = Some(writer.write());
+                        wg.as_mut().unwrap().update_tables(AddOne {});
 
-                    *cond.lock().unwrap() += 1;
-                    cv.notify_all();
-                    let mut step_num =
-                        wait_while(&cv, cond.lock().unwrap(), |step| *step < 2).unwrap();
+                        *cond.lock().unwrap() += 1;
+                        cv.notify_all();
+                        step_num = wait_while(&cv, cond.lock().unwrap(), |step| *step < 2).unwrap();
 
-                    // Write while holding the ReadGuard.
-                    wg.as_mut().unwrap().update_tables(AddOne {});
+                        // Write while holding the ReadGuard.
+                        wg.as_mut().unwrap().update_tables(AddOne {});
 
-                    // Make sure to drop wg before notifying the reader.
-                    wg = None;
+                        // Make sure to drop wg before notifying the reader.
+                    }
 
                     *step_num += 1;
                     cv.notify_all();
