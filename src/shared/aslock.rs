@@ -212,14 +212,23 @@ mod test {
 
     #[test]
     fn publish_update() {
-        let aslock = AsLock::<Vec<i32>>::default();
+        let aslock = Arc::new(AsLock::<Vec<i32>>::default());
         assert_eq!(aslock.read().len(), 0);
 
         {
             let mut wg = aslock.write();
             wg.update_tables(PushVec { value: 2 });
             assert_eq!(wg.len(), 1);
-            assert_eq!(aslock.read().len(), 0);
+            {
+                // Perform check in another thread to avoid potential deadlock
+                // (calling both read and write on aslock at the same time).
+                let aslock = Arc::clone(&aslock);
+                thread::spawn(move || {
+                    assert_eq!(aslock.read().len(), 0);
+                })
+                .join()
+                .unwrap();
+            }
         }
 
         // When the write guard is dropped it publishes the changes to the readers.
@@ -228,14 +237,23 @@ mod test {
 
     #[test]
     fn update_tables_closure() {
-        let aslock = AsLock::<Vec<i32>>::default();
+        let aslock = Arc::new(AsLock::<Vec<i32>>::default());
         assert_eq!(aslock.read().len(), 0);
 
         {
             let mut wg = aslock.write();
             wg.update_tables_closure(|vec| vec.push(2));
             assert_eq!(wg.len(), 1);
-            assert_eq!(aslock.read().len(), 0);
+            {
+                // Perform check in another thread to avoid potential deadlock
+                // (calling both read and write on aslock at the same time).
+                let aslock = Arc::clone(&aslock);
+                thread::spawn(move || {
+                    assert_eq!(aslock.read().len(), 0);
+                })
+                .join()
+                .unwrap();
+            }
         }
 
         // When the write guard is dropped it publishes the changes to the readers.

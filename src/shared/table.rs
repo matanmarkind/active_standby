@@ -41,14 +41,14 @@ impl<T> Table<T> {
         // By using an RwLock to guard the entire call of read & write, we
         // guarantee that a reader will never get stuck waiting for a writer to
         // release a given table.
-        let guard = self.is_table0_active.read().unwrap(); // !!!!!!!!!!!!!!!!
+        let guard = self.is_table0_active.read().unwrap();
         let is_table0_active = *guard;
 
         let active_table;
         if is_table0_active {
             active_table = self.table0.read().unwrap();
         } else {
-            active_table = self.table1.read().unwrap(); // !!!!!!!!!!!!!!!!!!
+            active_table = self.table1.read().unwrap();
         }
 
         active_table
@@ -68,7 +68,7 @@ impl<T> Table<T> {
         //   guards, never incoming attempts to read lock.
         let standby_table;
         if *self.is_table0_active.read().unwrap() {
-            standby_table = self.table1.write().unwrap(); // !!!!!!!!!!!!!!!!
+            standby_table = self.table1.write().unwrap();
         } else {
             standby_table = self.table0.write().unwrap();
         }

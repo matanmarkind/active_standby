@@ -464,7 +464,7 @@ mod lockless_test {
 
     #[test]
     fn debug_str() {
-        let table = lockless::AsLockHandle::<i32>::default();
+        let table = super::lockless::AsLockHandle::<i32>::default();
         {
             table.write().push(12);
         }
@@ -485,6 +485,7 @@ mod lockless_test {
 mod shared_test {
     use super::*;
     use std::sync::Arc;
+    use std::thread;
 
     #[test]
     fn push() {
@@ -496,7 +497,15 @@ mod shared_test {
             let mut wg = lock1.write();
             wg.push(2);
             assert_eq!(wg.len(), 1);
-            assert_eq!(lock2.read().len(), 0);
+            {
+                // Perform check in another thread to avoid potential deadlock
+                // (calling both read and write on aslock at the same time).
+                thread::spawn(move || {
+                    assert_eq!(lock2.read().len(), 0);
+                })
+                .join()
+                .unwrap();
+            }
         }
 
         // When the write guard is dropped it publishes the changes to the readers.
@@ -514,7 +523,16 @@ mod shared_test {
             let mut wg = aslock.write();
             wg.push(2);
             assert_eq!(wg.len(), 1);
-            assert_eq!(aslock.read().len(), 0);
+            {
+                // Perform check in another thread to avoid potential deadlock
+                // (calling both read and write on aslock at the same time).
+                let aslock = Arc::clone(&aslock);
+                thread::spawn(move || {
+                    assert_eq!(aslock.read().len(), 0);
+                })
+                .join()
+                .unwrap();
+            }
         }
 
         // When the write guard is dropped it publishes the changes to the readers.
@@ -641,7 +659,7 @@ mod shared_test {
 
     #[test]
     fn insert() {
-        let table = shared::AsLock::<i32>::default();
+        let table = Arc::new(shared::AsLock::<i32>::default());
 
         {
             let mut wg = table.write();
@@ -650,7 +668,16 @@ mod shared_test {
             }
             wg.insert(2, 10);
             assert_eq!(*wg, vec![0, 1, 10, 2, 3, 4]);
-            assert_eq!(*table.read(), vec![]);
+            {
+                // Perform check in another thread to avoid potential deadlock
+                // (calling both read and write on aslock at the same time).
+                let table = Arc::clone(&table);
+                thread::spawn(move || {
+                    assert_eq!(*table.read(), vec![]);
+                })
+                .join()
+                .unwrap();
+            }
         }
 
         assert_eq!(*table.read(), vec![0, 1, 10, 2, 3, 4]);
