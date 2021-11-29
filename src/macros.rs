@@ -33,35 +33,16 @@ macro_rules! generate_lockless_aslockhandle {
             $( $Inner:tt ),*
         >)?
     ) => {
-        struct Writer$(< $($Inner),* >)? {
-            pub writer: $crate::primitives::lockless::Writer<$Table $(< $($Inner),* >)? >,
-        }
-
-        impl$(< $($Inner),* >)? Writer$(< $($Inner),* >)? {
-            pub fn from_identical(
-                t1: $Table $(< $($Inner),* >)?,
-                t2: $Table $(< $($Inner),* >)?
-            ) -> Writer$(< $($Inner),* >)? {
-                Writer {
-                    writer: $crate::primitives::lockless::Writer::from_identical(t1, t2),
-                }
-            }
-
-            pub fn write(&self) -> WriteGuard<'_, $($($Inner),*)?> {
-                WriteGuard {
-                    guard: self.writer.write(),
-                }
-            }
-
-            pub fn new_reader(&self) -> $crate::primitives::lockless::Reader<$Table $(< $($Inner),* >)?> {
-                self.writer.new_reader()
-            }
-        }
-
+        // WriteGuard must be a new struct, because clients will implement the
+        // update functions for the generated WriteGuard type. If this was just
+        // a convenient type alias, clients would be blocked from creating impl
+        // blocks outside of the active_standby crate.
         pub struct WriteGuard<'w, $($($Inner),*)?> {
             guard: $crate::primitives::lockless::WriteGuard<'w, $Table $(< $($Inner),* >)?>,
         }
 
+        // Deref should pass through the wrapper WriteGuard and look like the
+        // user holds a primitive WriteGuard to the underlying table.
         impl<'w, $($($Inner),*)?> std::ops::Deref for WriteGuard<'w, $($($Inner),*)?> {
             type Target = $Table$(< $($Inner),* >)?;
             fn deref(&self) -> &Self::Target {
@@ -69,6 +50,8 @@ macro_rules! generate_lockless_aslockhandle {
             }
         }
 
+        // Debug should pass through the wrapper WriteGuard and look like the
+        // user holds a primitive WriteGuard to the underlying table.
         impl<'w, $($($Inner),*)?> std::fmt::Debug for WriteGuard<'w, $($($Inner),*)?>
             where $Table$(<$($Inner),*>)? : std::fmt::Debug,
         {
@@ -77,62 +60,76 @@ macro_rules! generate_lockless_aslockhandle {
             }
         }
 
-        pub struct AsLockHandle$(<$($Inner),*>)? {
-            writer: std::sync::Arc<Writer$(<$($Inner),*>)?>,
-            reader: $crate::primitives::lockless::Reader<$Table$(<$($Inner),*>)?>,
+        type AsLockHandleAlias$(< $($Inner),* >)? =
+            $crate::primitives::lockless::AsLockHandle<$Table $(< $($Inner),* >)? >;
+
+        // AsLockHandle needs to be a new struct, because we need to "override"
+        // the inner call to '_write' so that it will produce the new WriteGuard
+        // type that is defined here.
+        pub struct AsLockHandle$(< $($Inner),* >)? {
+            inner: AsLockHandleAlias$(< $($Inner),* >)?,
         }
 
-        impl$(<$($Inner),*>)? Default for AsLockHandle$(<$($Inner),*>)?
-            where $Table$(<$($Inner),*>)? : Default,
-        {
-            fn default() -> AsLockHandle$(<$($Inner),*>)? {
-                Self::from_identical($Table::default(), $Table::default())
-            }
-        }
-
-        impl$(<$($Inner),*>)? AsLockHandle$(<$($Inner),*>)?
-            where $Table$(<$($Inner),*>)? : Clone,
-        {
-            pub fn new(t: $Table $(< $($Inner),* >)?) -> AsLockHandle$(<$($Inner),*>)? {
-                Self::from_identical(t.clone(), t)
-            }
-        }
-
-        impl$(<$($Inner),*>)? AsLockHandle$(<$($Inner),*>)? {
+        impl$(< $($Inner),* >)? AsLockHandle$(< $($Inner),* >)? {
             pub fn from_identical(
                 t1: $Table $(< $($Inner),* >)?,
                 t2: $Table $(< $($Inner),* >)?
             ) -> AsLockHandle$(<$($Inner),*>)? {
-                let writer = std::sync::Arc::new(Writer::from_identical(t1, t2));
-                let reader = writer.new_reader();
-                AsLockHandle { writer, reader }
+                AsLockHandle {
+                    inner: AsLockHandleAlias::from_identical(t1, t2)
+                }
             }
 
-            pub fn write(&self) -> WriteGuard<'_, $($($Inner),*)?>  {
-                self.writer.write()
-            }
-
-            pub fn read(&self) -> $crate::primitives::lockless::ReadGuard<'_, $Table$(<$($Inner),*>)?> {
-                self.reader.read()
+            pub fn write(&self) -> WriteGuard<'_, $($($Inner),*)?> {
+                WriteGuard {
+                    guard: self._write()
+                }
             }
         }
 
-        impl$(<$($Inner),*>)? Clone for AsLockHandle$(<$($Inner),*>)? {
+        impl$(< $($Inner),* >)? AsLockHandle$(< $($Inner),* >)?
+        where
+            $Table$(<$($Inner),*>)? : Clone,
+        {
+            pub fn new(t: $Table $(< $($Inner),* >)?) -> AsLockHandle$(<$($Inner),*>)? {
+                AsLockHandle {
+                    inner: AsLockHandleAlias::from_identical(t.clone(), t)
+                }
+            }
+        }
+
+        impl$(< $($Inner),* >)? Default for AsLockHandle$(< $($Inner),* >)?
+        where
+            $Table$(<$($Inner),*>)? : Default,
+        {
+            fn default() -> AsLockHandle$(<$($Inner),*>)? {
+                println!("a");
+                AsLockHandle {
+                    inner: AsLockHandleAlias::from_identical($Table::default(), $Table::default())
+                }
+            }
+        }
+
+        impl$(< $($Inner),* >)? Clone for AsLockHandle$(< $($Inner),* >)? {
             fn clone(&self) -> AsLockHandle$(<$($Inner),*>)? {
-                let writer = std::sync::Arc::clone(&self.writer);
-                let reader = writer.new_reader();
-                AsLockHandle { writer, reader }
+                AsLockHandle {
+                    inner: self.inner.clone(),
+                }
             }
         }
 
-        impl$(<$($Inner),*>)? std::fmt::Debug for AsLockHandle$(<$($Inner),*>)?
+        impl$(< $($Inner),* >)? std::ops::Deref  for AsLockHandle$(< $($Inner),* >)? {
+            type Target = AsLockHandleAlias$(< $($Inner),* >)?;
+            fn deref(&self) -> &Self::Target {
+                &self.inner
+            }
+        }
+
+        impl$(< $($Inner),* >)? std::fmt::Debug  for AsLockHandle$(< $($Inner),* >)?
             where $Table$(<$($Inner),*>)? : std::fmt::Debug,
         {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                f.debug_struct("AsLockHandle")
-                    .field("writer", &self.writer.writer)
-                    .field("reader", &self.reader)
-                    .finish()
+                self.inner.fmt(f)
             }
         }
     }
@@ -164,14 +161,30 @@ macro_rules! generate_shared_aslock {
                 }
             }
 
-            pub fn write(&self) -> WriteGuard<'_, $($($Inner),*)?> {
+            pub fn read(&self) -> $crate::primitives::RwLockReadGuard<'_, $Table $(< $($Inner),* >)?> {
+                self.table.read()
+            }
+        }
+
+        #[cfg(active_standby_compare_tables_equal)]
+        impl$(< $($Inner),* >)? AsLock$(< $($Inner),* >)? where
+            $Table$(<$($Inner),*>)? : PartialEq + std::fmt::Debug,
+        {
+            pub fn write(&self) -> WriteGuard<'_, $($($Inner),*)?>  {
+                let wg = WriteGuard {
+                    guard: self.table.write(),
+                };
+                assert_eq!(*wg, *self.read());
+                wg
+            }
+        }
+
+        #[cfg(not(active_standby_compare_tables_equal))]
+        impl$(< $($Inner),* >)? AsLock$(< $($Inner),* >)? {
+            pub fn write(&self) -> WriteGuard<'_, $($($Inner),*)?>  {
                 WriteGuard {
                     guard: self.table.write(),
                 }
-            }
-
-            pub fn read(&self) -> $crate::primitives::RwLockReadGuard<'_, $Table $(< $($Inner),* >)?> {
-                self.table.read()
             }
         }
 

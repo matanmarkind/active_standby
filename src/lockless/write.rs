@@ -300,6 +300,7 @@ impl<T> Writer<T> {
     pub fn write(&self) -> WriteGuard<'_, T> {
         // Grab the mutex as the first thing.
         let _mtx_guard = Some(self.mtx.lock().unwrap());
+        std::sync::atomic::compiler_fence(Ordering::SeqCst);
 
         let writer = unsafe { &mut *self.writer.get() };
         WriteGuard {
@@ -309,7 +310,6 @@ impl<T> Writer<T> {
     }
 
     pub fn new_reader(&self) -> Reader<T> {
-        let _mtx_guard = self.mtx.lock().unwrap();
         let mut _lock = Some(self.mtx.lock().unwrap());
 
         let writer = unsafe { &*self.writer.get() };
