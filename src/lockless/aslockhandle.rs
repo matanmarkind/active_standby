@@ -29,7 +29,7 @@ impl<T> AsLockHandle<T>
 where
     T: PartialEq + std::fmt::Debug,
 {
-    pub fn _write(&self) -> WriteGuard<'_, T> {
+    pub fn write(&self) -> WriteGuard<'_, T> {
         let wg = self.writer.write();
         assert_eq!(*wg, *self.read());
         wg
@@ -38,7 +38,7 @@ where
 
 #[cfg(not(active_standby_compare_tables_equal))]
 impl<T> AsLockHandle<T> {
-    pub fn _write(&self) -> WriteGuard<'_, T> {
+    pub fn write(&self) -> WriteGuard<'_, T> {
         self.writer.write()
     }
 }

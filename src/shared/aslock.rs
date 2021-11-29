@@ -68,7 +68,7 @@ impl<T> AsLock<T> {
     ///    not itself been dropped.
     /// 2. Replaying all of the updates that were applied to the last
     ///    WriteGuard.
-    pub fn write(&self) -> WriteGuard<'_, T> {
+    pub fn _write(&self) -> WriteGuard<'_, T> {
         // Grab ops_to_replay as the first thing in 'write' as a way to ensure
         // that it is single threaded.
         let mut ops_to_replay = self.ops_to_replay.lock().unwrap();
@@ -89,6 +89,25 @@ impl<T> AsLock<T> {
 
     pub fn read(&self) -> RwLockReadGuard<'_, T> {
         self.table.read()
+    }
+}
+
+#[cfg(active_standby_compare_tables_equal)]
+impl<T> AsLock<T>
+where
+    T: PartialEq + std::fmt::Debug,
+{
+    pub fn write(&self) -> WriteGuard<'_, T> {
+        let wg = self._write();
+        assert_eq!(*wg, *self.read());
+        wg
+    }
+}
+
+#[cfg(not(active_standby_compare_tables_equal))]
+impl<T> AsLock<T> {
+    pub fn write(&self) -> WriteGuard<'_, T> {
+        self._write()
     }
 }
 
