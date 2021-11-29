@@ -8,11 +8,8 @@ pub struct AsLockHandle<T> {
 
 impl<T> AsLockHandle<T> {
     pub fn from_identical(t1: T, t2: T) -> AsLockHandle<T> {
-        println!("A");
         let writer = Writer::from_identical(t1, t2);
-        println!("B");
         let reader = writer.new_reader();
-        println!("C");
         AsLockHandle {
             writer: std::sync::Arc::new(writer),
             reader,

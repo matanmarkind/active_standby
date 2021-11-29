@@ -213,7 +213,6 @@ mod lockless_test {
             "joe" => 4,
         };
 
-        println!("1");
         let table = lockless::AsLockHandle::<&str, i32>::default();
         {
             let map1 = btreemap! {
@@ -224,24 +223,15 @@ mod lockless_test {
                 "name's" => 3,
                 "joe" => 4,
             };
-            println!("2");
             let mut wg = table.write();
-            println!("3");
             wg.append(map1);
-            println!("4");
             wg.append(map2);
-            println!("5");
             assert_eq!(*wg, expected);
-            println!("6");
         }
 
-        println!("7");
         assert_eq!(*table.read(), expected);
-        println!("8");
         assert_eq!(*table.write(), expected);
-        println!("9");
         assert_eq!(*table.read(), expected);
-        println!("10");
     }
 
     #[test]
