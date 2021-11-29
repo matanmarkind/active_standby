@@ -177,11 +177,3 @@ pub mod primitives {
 /// simply gain write access to the underlying table and then mutate it. Instead
 /// mutations are done through UpdateTables so that both tables will be updated.
 pub mod collections;
-
-// Testing notes. Beyond the plain `cargo test` recipe there are a number of
-// other things to be tried.
-// - tsan (use --lib to avoid doc tests since tsan + doctest doesn't seem to
-//   work): RUSTFLAGS="-Zsanitizer=thread -g" cargo +nightly test --lib -Z
-//   build-std --target x86_64-unknown-linux-gnu
-// - benchmarks (also can run with tsan): cargo +nightly bench
-// - loom: RUSTFLAGS='--cfg loom' cargo +nightly test --test loom

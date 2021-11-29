@@ -143,3 +143,24 @@ long as no elements of the table are mutated, only inserted and removed. Using a
 vector as an example, if you wanted a function that increases the value of the
 first element by 1, you would not increment the value behind the Arc. You would
 reassign the first element to a new Arc with the incremented value.
+
+## Testing
+There are a number of tests that come with active_standby:
+
+- unittests: cargo test
+- benchmarks: cargo +nightly bench
+- [loom](https://crates.io/crates/loom): RUSTFLAGS='--cfg loom' cargo +nightly test --test loom
+
+[Sanitizers](https://doc.rust-lang.org/beta/unstable-book/compiler-flags/sanitizer.html),
+especially thread sanitizer, can be useful to run with tests. Note that tsan
+requires all libraries to be build with instrumentation, including std, not just
+the local crate.
+
+- If running with unittests, pass the --lib flag to avoid doc tests which don't
+  seem to play nice with tsan.
+- Can also run with benchmarks.
+- Example from Ubunutu 20.04:
+
+```
+  RUSTFLAGS="-Zsanitizer=thread -g" cargo test --lib -Z build-std --target x86_64-unknown-linux-gnu
+```
