@@ -162,7 +162,7 @@ the local crate.
 - Example from Ubunutu 20.04:
 
 ```
-  RUSTFLAGS="-Zsanitizer=thread -g" cargo test --lib -Z build-std --target x86_64-unknown-linux-gnu
+  RUSTFLAGS="-Zsanitizer=thread -g" cargo +nightly test --lib -Z build-std --target x86_64-unknown-linux-gnu
 ```
 
 [Miri](https://github.com/rust-lang/miri)

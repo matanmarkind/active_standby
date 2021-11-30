@@ -117,9 +117,9 @@ impl<T> InnerWriter<T> {
             }
 
             if !self.blocking_readers.is_empty() {
-                // Instead of busy looping we will yield this thread and come
-                // back when the OS returns to us.
-                yield_now();
+                // Instead of just busy looping we will (potentially) yield this
+                // thread and come back when the OS returns to us.
+                spin_loop();
             }
         }
     }

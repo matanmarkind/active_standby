@@ -1,9 +1,9 @@
 #[cfg(loom)]
+pub(crate) use loom::hint::spin_loop;
+#[cfg(loom)]
 pub(crate) use loom::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 #[cfg(loom)]
 pub(crate) use loom::sync::{Arc, Mutex, MutexGuard};
-#[cfg(loom)]
-pub(crate) use loom::thread::yield_now;
 #[cfg(loom)]
 pub type RwLock<T> = loom::sync::RwLock<T>;
 #[cfg(loom)]
@@ -29,7 +29,7 @@ pub(crate) use std::sync::atomic::{fence, AtomicPtr, AtomicUsize, Ordering};
 #[cfg(not(loom))]
 pub(crate) use std::sync::{Arc, Mutex, MutexGuard};
 #[cfg(not(loom))]
-pub(crate) use std::thread::yield_now;
+pub(crate) use std::hint::spin_loop;
 #[cfg(not(loom))]
 pub type RwLock<T> = crossbeam::sync::ShardedLock<T>;
 #[cfg(not(loom))]
