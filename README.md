@@ -164,3 +164,6 @@ the local crate.
 ```
   RUSTFLAGS="-Zsanitizer=thread -g" cargo test --lib -Z build-std --target x86_64-unknown-linux-gnu
 ```
+
+[Miri](https://github.com/rust-lang/miri)
+[Rudra](https://github.com/sslab-gatech/Rudra)
