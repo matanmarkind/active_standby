@@ -86,14 +86,15 @@ macro_rules! generate_lockless_aslockhandle {
                         Ok(WriteGuard {
                             guard: g
                         }),
-                    Err(e) =>
-                        Err(
-                            $crate::primitives::PoisonError::new(
-                                WriteGuard {
-                                    guard: e.into_inner()
-                                }
-                            )
-                        ),
+                    Err(g) => {
+                        // Type conversion.
+                        if g.get_ref().is_none() {
+                            return Err($crate::primitives::PoisonError::new(None));
+                        }
+                        Err($crate::primitives::PoisonError::new(
+                            Some(WriteGuard { guard: g.into_inner().unwrap() })
+                        ))
+                    }
                 }
             }
         }

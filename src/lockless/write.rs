@@ -301,12 +301,7 @@ impl<T> Writer<T> {
         // Grab the mutex as the first thing.
         let mg = match self.mtx.lock() {
             Ok(mg) => mg,
-            Err(e) => {
-                return Err(PoisonError::new(WriteGuard {
-                    _mtx_guard: Some(e.into_inner()),
-                    write_guard: None,
-                }))
-            }
+            Err(_) => return Err(PoisonError::new(None)),
         };
         std::sync::atomic::compiler_fence(Ordering::SeqCst);
 
