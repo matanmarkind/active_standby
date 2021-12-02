@@ -1,3 +1,8 @@
+// Loom & crossbeam return the std PoisonError, so no need to use conditional
+// compilation.
+pub use std::sync::PoisonError;
+pub type LockResult<Guard> = Result<Guard, PoisonError<Guard>>;
+
 #[cfg(loom)]
 pub(crate) use loom::hint::spin_loop;
 #[cfg(loom)]
@@ -25,11 +30,11 @@ pub(crate) fn fence(ord: Ordering) {
 }
 
 #[cfg(not(loom))]
+pub(crate) use std::hint::spin_loop;
+#[cfg(not(loom))]
 pub(crate) use std::sync::atomic::{fence, AtomicPtr, AtomicUsize, Ordering};
 #[cfg(not(loom))]
 pub(crate) use std::sync::{Arc, Mutex, MutexGuard};
-#[cfg(not(loom))]
-pub(crate) use std::hint::spin_loop;
 #[cfg(not(loom))]
 pub type RwLock<T> = crossbeam::sync::ShardedLock<T>;
 #[cfg(not(loom))]

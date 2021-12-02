@@ -297,16 +297,25 @@ impl<T> Writer<T> {
         }
     }
 
-    pub fn write(&self) -> WriteGuard<'_, T> {
+    pub fn write(&self) -> LockResult<WriteGuard<'_, T>> {
         // Grab the mutex as the first thing.
-        let _mtx_guard = Some(self.mtx.lock().unwrap());
+        let mg = match self.mtx.lock() {
+            Ok(mg) => mg,
+            Err(e) => {
+                return Err(PoisonError::new(WriteGuard {
+                    _mtx_guard: Some(e.into_inner()),
+                    write_guard: None,
+                }))
+            }
+        };
         std::sync::atomic::compiler_fence(Ordering::SeqCst);
 
         let writer = unsafe { &mut *self.writer.get() };
-        WriteGuard {
-            _mtx_guard,
+
+        Ok(WriteGuard {
+            _mtx_guard: Some(mg),
             write_guard: Some(UnsafeCell::new(writer.write())),
-        }
+        })
     }
 
     pub fn new_reader(&self) -> Reader<T> {
@@ -446,13 +455,13 @@ mod test {
     #[test]
     fn one_write_guard() {
         let writer = Writer::<Vec<i32>>::default();
-        let _wg = writer.write();
+        let _wg = writer.write().unwrap();
 
         // If we uncomment this line the program fails to compile due to a
         // second mutable borrow. This is what we want to guarantee there can
         // only be 1 WriteGuard at a time.
         //
-        // let wg2 = writer.write();
+        // let wg2 = writer.write().unwrap();
     }
 
     #[test]
@@ -475,7 +484,7 @@ mod test {
         assert_eq!(reader.read().len(), 0);
 
         {
-            let mut wg = writer.write();
+            let mut wg = writer.write().unwrap();
             wg.update_tables(PushVec { value: 2 });
             assert_eq!(wg.len(), 1);
             assert_eq!(reader.read().len(), 0);
@@ -492,7 +501,7 @@ mod test {
         assert_eq!(reader.read().len(), 0);
 
         {
-            let mut wg = writer.write();
+            let mut wg = writer.write().unwrap();
             wg.update_tables_closure(|vec| vec.push(2));
             assert_eq!(wg.len(), 1);
             assert_eq!(reader.read().len(), 0);
@@ -506,7 +515,7 @@ mod test {
     fn multi_apply() {
         let writer = Writer::<Vec<i32>>::default();
         {
-            let mut wg = writer.write();
+            let mut wg = writer.write().unwrap();
             wg.update_tables(PushVec { value: 2 });
             wg.update_tables(PushVec { value: 3 });
             wg.update_tables(PushVec { value: 4 });
@@ -521,7 +530,7 @@ mod test {
     fn multi_publish() {
         let writer = Writer::<Vec<Box<i32>>>::default();
         {
-            let mut wg = writer.write();
+            let mut wg = writer.write().unwrap();
             wg.update_tables(PushVec { value: Box::new(2) });
             wg.update_tables(PushVec { value: Box::new(3) });
             wg.update_tables(PopVec {});
@@ -531,7 +540,7 @@ mod test {
         assert_eq!(*reader.read(), vec![Box::new(2), Box::new(5)]);
 
         {
-            let mut wg = writer.write();
+            let mut wg = writer.write().unwrap();
             wg.update_tables(PushVec { value: Box::new(9) });
             wg.update_tables(PushVec { value: Box::new(8) });
             wg.update_tables(PopVec {});
@@ -544,7 +553,7 @@ mod test {
         );
 
         {
-            let mut wg = writer.write();
+            let mut wg = writer.write().unwrap();
             wg.update_tables(PopVec {});
         }
         let reader = writer.new_reader();
@@ -569,7 +578,7 @@ mod test {
         });
 
         {
-            let mut wg = writer.write();
+            let mut wg = writer.write().unwrap();
             wg.update_tables(PushVec { value: 2 });
             wg.update_tables(PushVec { value: 3 });
             wg.update_tables(PushVec { value: 4 });
@@ -589,7 +598,7 @@ mod test {
             reader = writer.new_reader();
 
             {
-                let mut wg = writer.write();
+                let mut wg = writer.write().unwrap();
                 wg.update_tables(PushVec { value: 2 });
                 wg.update_tables(PushVec { value: 3 });
                 wg.update_tables(PushVec { value: 4 });
@@ -606,7 +615,7 @@ mod test {
         let reader = writer.new_reader();
         assert_eq!(format!("{:?}", writer), "Writer { num_ops_to_replay: 0 }");
         {
-            let mut wg = writer.write();
+            let mut wg = writer.write().unwrap();
             wg.update_tables(PushVec { value: 2 });
             assert_eq!(
                 format!("{:?}", wg),
@@ -627,7 +636,7 @@ mod test {
         let reader = writer.new_reader();
 
         {
-            let mut wg = writer.write();
+            let mut wg = writer.write().unwrap();
             wg.update_tables(PushVec { value: 2 });
             let mr = wg.update_tables(MutableRef {});
             *mr = 10;

@@ -238,7 +238,7 @@ mod lockless_test {
         assert_eq!(lock1.read().len(), 0);
 
         {
-            let mut wg = lock1.write();
+            let mut wg = lock1.write().unwrap();
             wg.push(2);
             assert_eq!(wg.len(), 1);
             assert_eq!(lock2.read().len(), 0);
@@ -246,7 +246,7 @@ mod lockless_test {
 
         // When the write guard is dropped it publishes the changes to the readers.
         assert_eq!(*lock1.read(), vec![2]);
-        assert_eq!(*lock1.write(), vec![2]);
+        assert_eq!(*lock1.write().unwrap(), vec![2]);
         assert_eq!(*lock1.read(), vec![2]);
     }
 
@@ -257,7 +257,7 @@ mod lockless_test {
 
         {
             let aslock2 = aslock.clone();
-            let mut wg = aslock.write();
+            let mut wg = aslock.write().unwrap();
             wg.push(2);
             assert_eq!(wg.len(), 1);
             assert_eq!(aslock2.read().len(), 0);
@@ -265,12 +265,12 @@ mod lockless_test {
 
         // When the write guard is dropped it publishes the changes to the readers.
         assert_eq!(*aslock.read(), vec![2]);
-        assert_eq!(*aslock.write(), vec![2]);
+        assert_eq!(*aslock.write().unwrap(), vec![2]);
         assert_eq!(*aslock.read(), vec![2]);
 
-        aslock.write().clear();
+        aslock.write().unwrap().clear();
         assert_eq!(*aslock.read(), vec![]);
-        assert_eq!(*aslock.write(), vec![]);
+        assert_eq!(*aslock.write().unwrap(), vec![]);
         assert_eq!(*aslock.read(), vec![]);
     }
 
@@ -278,7 +278,7 @@ mod lockless_test {
     fn pop() {
         let table = lockless::AsLockHandle::<i32>::default();
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             wg.push(2);
             wg.push(3);
             wg.pop();
@@ -287,7 +287,7 @@ mod lockless_test {
 
         // When the write guard is dropped it publishes the changes to the readers.
         assert_eq!(*table.read(), vec![2, 4]);
-        assert_eq!(*table.write(), vec![2, 4]);
+        assert_eq!(*table.write().unwrap(), vec![2, 4]);
         assert_eq!(*table.read(), vec![2, 4]);
     }
 
@@ -296,13 +296,13 @@ mod lockless_test {
         let table = lockless::AsLockHandle::<Box<i32>>::default();
 
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             wg.push(Box::new(2));
         }
 
         // When the write guard is dropped it publishes the changes to the readers.
         assert_eq!(*table.read(), vec![Box::new(2)]);
-        assert_eq!(*table.write(), vec![Box::new(2)]);
+        assert_eq!(*table.write().unwrap(), vec![Box::new(2)]);
         assert_eq!(*table.read(), vec![Box::new(2)]);
     }
 
@@ -311,12 +311,12 @@ mod lockless_test {
         let table = lockless::AsLockHandle::<i32>::default();
 
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             wg.reserve(123);
         }
 
         assert!(table.read().capacity() >= 123);
-        assert!(table.write().capacity() >= 123);
+        assert!(table.write().unwrap().capacity() >= 123);
         assert!(table.read().capacity() >= 123);
     }
 
@@ -325,12 +325,12 @@ mod lockless_test {
         let table = lockless::AsLockHandle::<i32>::default();
 
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             wg.reserve_exact(123);
         }
 
         assert_eq!(table.read().capacity(), 123);
-        assert_eq!(table.write().capacity(), 123);
+        assert_eq!(table.write().unwrap().capacity(), 123);
         assert_eq!(table.read().capacity(), 123);
     }
 
@@ -339,7 +339,7 @@ mod lockless_test {
         let table = lockless::AsLockHandle::<i32>::default();
 
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             wg.reserve_exact(123);
             wg.push(2);
             wg.push(3);
@@ -347,7 +347,7 @@ mod lockless_test {
         }
 
         assert_eq!(table.read().capacity(), 2);
-        assert_eq!(table.write().capacity(), 2);
+        assert_eq!(table.write().unwrap().capacity(), 2);
         assert_eq!(table.read().capacity(), 2);
     }
 
@@ -356,7 +356,7 @@ mod lockless_test {
         let table = lockless::AsLockHandle::<i32>::default();
 
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             for i in 0..10 {
                 wg.push(i);
             }
@@ -364,7 +364,7 @@ mod lockless_test {
         }
 
         assert_eq!(*table.read(), vec![0, 1, 2]);
-        assert_eq!(*table.write(), vec![0, 1, 2]);
+        assert_eq!(*table.write().unwrap(), vec![0, 1, 2]);
         assert_eq!(*table.read(), vec![0, 1, 2]);
     }
 
@@ -373,7 +373,7 @@ mod lockless_test {
         let table = lockless::AsLockHandle::<i32>::default();
 
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             for i in 0..5 {
                 wg.push(i);
             }
@@ -381,7 +381,7 @@ mod lockless_test {
         }
 
         assert_eq!(*table.read(), vec![0, 1, 4, 3]);
-        assert_eq!(*table.write(), vec![0, 1, 4, 3]);
+        assert_eq!(*table.write().unwrap(), vec![0, 1, 4, 3]);
         assert_eq!(*table.read(), vec![0, 1, 4, 3]);
     }
 
@@ -391,7 +391,7 @@ mod lockless_test {
         let table2 = table.clone();
 
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             for i in 0..5 {
                 wg.push(i);
             }
@@ -401,7 +401,7 @@ mod lockless_test {
         }
 
         assert_eq!(*table.read(), vec![0, 1, 10, 2, 3, 4]);
-        assert_eq!(*table.write(), vec![0, 1, 10, 2, 3, 4]);
+        assert_eq!(*table.write().unwrap(), vec![0, 1, 10, 2, 3, 4]);
         assert_eq!(*table.read(), vec![0, 1, 10, 2, 3, 4]);
     }
 
@@ -410,7 +410,7 @@ mod lockless_test {
         let table = lockless::AsLockHandle::<i32>::default();
 
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             for i in 0..5 {
                 wg.push(i);
             }
@@ -418,7 +418,7 @@ mod lockless_test {
         }
 
         assert_eq!(*table.read(), vec![0, 2, 4]);
-        assert_eq!(*table.write(), vec![0, 2, 4]);
+        assert_eq!(*table.write().unwrap(), vec![0, 2, 4]);
         assert_eq!(*table.read(), vec![0, 2, 4]);
     }
 
@@ -427,7 +427,7 @@ mod lockless_test {
         let table = lockless::AsLockHandle::<i32>::new(vec![]);
 
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             for i in 0..5 {
                 wg.push(i + 1);
             }
@@ -435,7 +435,7 @@ mod lockless_test {
         }
 
         assert_eq!(*table.read(), vec![1, 5]);
-        assert_eq!(*table.write(), vec![1, 5]);
+        assert_eq!(*table.write().unwrap(), vec![1, 5]);
         assert_eq!(*table.read(), vec![1, 5]);
     }
 
@@ -444,7 +444,7 @@ mod lockless_test {
         let table = lockless::AsLockHandle::<i32>::from_identical(vec![], vec![]);
 
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             for i in 0..5 {
                 wg.push(i + 1);
             }
@@ -458,7 +458,7 @@ mod lockless_test {
         }
 
         assert_eq!(*table.read(), vec![1]);
-        assert_eq!(*table.write(), vec![1]);
+        assert_eq!(*table.write().unwrap(), vec![1]);
         assert_eq!(*table.read(), vec![1]);
     }
 
@@ -466,12 +466,12 @@ mod lockless_test {
     fn debug_str() {
         let table = super::lockless::AsLockHandle::<i32>::default();
         {
-            table.write().push(12);
+            table.write().unwrap().push(12);
         }
 
         assert_eq!(format!("{:?}", table), "AsLockHandle { writer: Writer { num_ops_to_replay: 1 }, reader: Reader { num_readers: 1 } }",);
         assert_eq!(
-            format!("{:?}", table.write()),
+            format!("{:?}", table.write().unwrap()),
             "WriteGuard { num_ops_to_replay: 0, standby_table: TableWriteGuard { standby_table: [12] } }",
         );
         assert_eq!(

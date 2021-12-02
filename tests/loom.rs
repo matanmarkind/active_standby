@@ -56,7 +56,7 @@ mod loom_tests {
         loom::model(|| {
             let writer = Writer::<i32>::new(1);
             {
-                let mut wg = writer.write();
+                let mut wg = writer.write().unwrap();
                 wg.update_tables(AddOne {});
             }
 
@@ -64,7 +64,7 @@ mod loom_tests {
             let val = thread::spawn(move || *reader.read()).join().unwrap();
 
             {
-                let mut wg = writer.write();
+                let mut wg = writer.write().unwrap();
                 wg.update_tables(AddOne {});
             }
 
@@ -122,7 +122,7 @@ mod loom_tests {
 
                     let mut step_num;
                     {
-                        let mut wg = Some(writer.write());
+                        let mut wg = Some(writer.write().unwrap());
                         wg.as_mut().unwrap().update_tables(AddOne {});
 
                         *cond.lock().unwrap() += 1;

@@ -138,14 +138,14 @@ mod lockless_test {
 
         let table = lockless::AsLockHandle::<&str, i32>::default();
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             wg.insert("hello", 1);
             wg.insert("world", 2);
             assert_eq!(*wg, expected);
         }
 
         assert_eq!(*table.read(), expected);
-        assert_eq!(*table.write(), expected);
+        assert_eq!(*table.write().unwrap(), expected);
         assert_eq!(*table.read(), expected);
     }
 
@@ -153,14 +153,14 @@ mod lockless_test {
     fn clear() {
         let table = lockless::AsLockHandle::<&str, i32>::default();
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             wg.insert("hello", 1);
             wg.insert("world", 2);
             wg.clear();
         }
 
         assert!(table.read().is_empty());
-        assert!(table.write().is_empty());
+        assert!(table.write().unwrap().is_empty());
         assert!(table.read().is_empty());
     }
 
@@ -172,7 +172,7 @@ mod lockless_test {
 
         let table = lockless::AsLockHandle::<&str, i32>::default();
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             wg.insert("hello", 1);
             wg.insert("world", 2);
             assert_eq!(wg.remove("world"), Some(2));
@@ -180,7 +180,7 @@ mod lockless_test {
         }
 
         assert_eq!(*table.read(), expected);
-        assert_eq!(*table.write(), expected);
+        assert_eq!(*table.write().unwrap(), expected);
         assert_eq!(*table.read(), expected);
     }
 
@@ -192,7 +192,7 @@ mod lockless_test {
 
         let table = lockless::AsLockHandle::<&str, i32>::default();
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             wg.insert("hello", 1);
             wg.insert("world", 2);
             assert_eq!(wg.remove_entry("world"), Some(("world", 2)));
@@ -200,7 +200,7 @@ mod lockless_test {
         }
 
         assert_eq!(*table.read(), expected);
-        assert_eq!(*table.write(), expected);
+        assert_eq!(*table.write().unwrap(), expected);
         assert_eq!(*table.read(), expected);
     }
 
@@ -223,14 +223,14 @@ mod lockless_test {
                 "name's" => 3,
                 "joe" => 4,
             };
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             wg.append(map1);
             wg.append(map2);
             assert_eq!(*wg, expected);
         }
 
         assert_eq!(*table.read(), expected);
-        assert_eq!(*table.write(), expected);
+        assert_eq!(*table.write().unwrap(), expected);
         assert_eq!(*table.read(), expected);
     }
 
@@ -238,7 +238,7 @@ mod lockless_test {
     fn debug_str() {
         let table = lockless::AsLockHandle::<i32, i32>::default();
         {
-            table.write().insert(12, -1);
+            table.write().unwrap().insert(12, -1);
         }
 
         assert_eq!(
@@ -246,7 +246,7 @@ mod lockless_test {
             "AsLockHandle { writer: Writer { num_ops_to_replay: 1 }, reader: Reader { num_readers: 1 } }",
         );
         assert_eq!(
-            format!("{:?}", table.write()),
+            format!("{:?}", table.write().unwrap()),
             "WriteGuard { num_ops_to_replay: 0, standby_table: TableWriteGuard { standby_table: {12: -1} } }",
         );
         assert_eq!(

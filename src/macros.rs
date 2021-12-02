@@ -80,9 +80,20 @@ macro_rules! generate_lockless_aslockhandle {
                 }
             }
 
-            pub fn write(&self) -> WriteGuard<'_, $($($Inner),*)?> {
-                WriteGuard {
-                    guard: self.inner.write()
+            pub fn write(&self) -> $crate::primitives::LockResult<WriteGuard<'_, $($($Inner),*)?>> {
+                match self.inner.write() {
+                    Ok(g) =>
+                        Ok(WriteGuard {
+                            guard: g
+                        }),
+                    Err(e) =>
+                        Err(
+                            $crate::primitives::PoisonError::new(
+                                WriteGuard {
+                                    guard: e.into_inner()
+                                }
+                            )
+                        ),
                 }
             }
         }

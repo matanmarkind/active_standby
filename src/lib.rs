@@ -112,7 +112,7 @@
 //!     });
 //!
 //!     {
-//!         let mut wg = table.write();
+//!         let mut wg = table.write().unwrap();
 //!         wg.add_one();
 //!     }
 //!     handle.join();
@@ -160,7 +160,9 @@ mod shared;
 /// struct using one of the macros and then just implement the mutations for the
 /// generated WriteGuard.
 pub mod primitives {
-    pub use crate::types::{RwLock, RwLockReadGuard, RwLockWriteGuard, UpdateTables};
+    pub use crate::types::{
+        LockResult, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard, UpdateTables,
+    };
     pub mod lockless {
         pub use crate::lockless::aslockhandle::AsLockHandle;
         pub use crate::lockless::read::{ReadGuard, Reader};

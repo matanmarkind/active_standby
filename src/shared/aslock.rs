@@ -88,7 +88,7 @@ impl<T> AsLock<T> {
     }
 
     pub fn read(&self) -> RwLockReadGuard<'_, T> {
-        self.table.read()
+        self.table.read().unwrap()
     }
 }
 

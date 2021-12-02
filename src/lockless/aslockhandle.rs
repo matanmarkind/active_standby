@@ -1,5 +1,6 @@
 use crate::lockless::read::{ReadGuard, Reader};
 use crate::lockless::write::{WriteGuard, Writer};
+use crate::types::*;
 
 pub struct AsLockHandle<T> {
     writer: std::sync::Arc<Writer<T>>,
@@ -26,16 +27,18 @@ impl<T> AsLockHandle<T>
 where
     T: PartialEq + std::fmt::Debug,
 {
-    pub fn write(&self) -> WriteGuard<'_, T> {
-        let wg = self.writer.write();
-        assert_eq!(*wg, *self.read());
-        wg
+    pub fn write(&self) -> LockResult<WriteGuard<'_, T>> {
+        let wg = self.writer.write()?;
+        if (*wg != *self.read()) {
+            return Err(PoisonError::new(wg));
+        }
+        Ok(wg)
     }
 }
 
 #[cfg(not(active_standby_compare_tables_equal))]
 impl<T> AsLockHandle<T> {
-    pub fn write(&self) -> WriteGuard<'_, T> {
+    pub fn write(&self) -> LockResult<WriteGuard<'_, T>> {
         self.writer.write()
     }
 }
