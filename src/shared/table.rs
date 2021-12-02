@@ -21,7 +21,7 @@ impl<T> Table<T> {
         }
     }
 
-    pub fn read(&self) -> LockResult<RwLockReadGuard<'_, T>> {
+    pub fn read(&self) -> RwLockReadGuard<'_, T> {
         // Use a read guard to make sure there is no race between:
         // - read guards reading from `is_table0_active` and grabbing a
         //   reader/writer.
@@ -46,9 +46,9 @@ impl<T> Table<T> {
 
         let active_table;
         if is_table0_active {
-            active_table = self.table0.read();
+            active_table = self.table0.read().unwrap();
         } else {
-            active_table = self.table1.read();
+            active_table = self.table1.read().unwrap();
         }
 
         active_table
@@ -134,6 +134,6 @@ mod test {
             *wg += 1;
         }
 
-        assert_eq!(*table.read().unwrap(), 6);
+        assert_eq!(*table.read(), 6);
     }
 }
