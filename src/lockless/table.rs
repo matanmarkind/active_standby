@@ -28,19 +28,20 @@ use std::fmt;
 ///
 /// All operations (mostly swap) on the active and standby tables are SeqCst,
 /// since they need to be kept in sync relative to each other.
-pub struct Table<T> {
-    active_table: AtomicPtr<T>,
-    standby_table: AtomicPtr<T>,
-}
-
-/// This is the struct used to gain mutable access to the standby_table. It
-/// handles swapping the active and standby tables when dropped.
 ///
-/// Note that unlike RwLockWriteGuard this class doesn't represent a unique lock
-/// on the standby table. That is the responsibility of the Writer.
-pub struct TableWriteGuard<'w, T> {
-    active_table: &'w AtomicPtr<T>,
-    standby_table: &'w AtomicPtr<T>,
+/// Consider adding comments about why not to do:
+/// 1. AtomicPtr<(T, read_count)> - This means that the reader will grab the
+///    active table before incrementing the counter, so it won't actually be
+///    locked. Therefore a reader can grab the active table, then go to sleep
+///    before incrementing the counter, and then have the writer do swapping and
+///    only wake up while the writer holds the table.
+/// 2. AtomicBool table0_active. I think the reason I didn't do this was to try
+///    and keep reads as fast as possible. That involved another read + a branch
+///    before grabbing the table; the current method is just grabbing a pointer.
+///    I think it was possible to do this safely.
+pub struct Table<T> {
+    pub active_table: AtomicPtr<T>,
+    pub standby_table: AtomicPtr<T>,
 }
 
 impl<T> Table<T> {
@@ -58,7 +59,8 @@ impl<T> Table<T> {
         }
     }
 
-    pub fn read(&self) -> &'_ T {
+    // This is the only function that Readers should ever call to of Table.
+    pub fn active_table(&self) -> &T {
         // Memory safety (valid pointer) is guaranteed by the class. See class
         // level comment.
         //
@@ -68,39 +70,37 @@ impl<T> Table<T> {
         unsafe { &*self.active_table.load(Ordering::SeqCst) }
     }
 
-    pub fn write(&self) -> TableWriteGuard<'_, T> {
-        TableWriteGuard {
-            active_table: &self.active_table,
-            standby_table: &self.standby_table,
-        }
+    /// Memory safety (valid pointer) is guaranteed by the class. See class
+    /// level comment.
+    ///
+    /// This is thread safe as long as the user guarantees that:
+    /// 1. The standby table is only accessed by the Writer.
+    /// 2. Only 1 Writer will attempt to interact with the table at a time.
+    /// 3. Writers wait for all Readers to switch off this table after calling
+    ///    to `swap_active_and_standby`.
+    pub fn standby_table(&self) -> &T {
+        unsafe { &*self.standby_table.load(Ordering::SeqCst) }
     }
-}
 
-impl<T> Drop for Table<T> {
-    fn drop(&mut self) {
-        // Memory safety (valid pointer) is guaranteed by the class. See class
-        // level comment.
-        unsafe {
-            let _active_table = Box::from_raw(self.active_table.load(Ordering::SeqCst));
-            let _standby_table = Box::from_raw(self.standby_table.load(Ordering::SeqCst));
-        }
+    /// Memory safety (valid pointer) is guaranteed by the class. See class
+    /// level comment.
+    ///
+    /// This is thread safe as long as the user guarantees that:
+    /// 1. The standby table is only accessed by the Writer.
+    /// 2. Only 1 Writer will attempt to interact with the table at a time.
+    /// 3. Writers wait for all Readers to switch off this table after calling
+    ///    to `swap_active_and_standby`.
+    pub fn standby_table_mut(&self) -> &mut T {
+        unsafe { &mut *self.standby_table.load(Ordering::SeqCst) }
     }
-}
 
-impl<T: fmt::Debug> fmt::Debug for Table<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Table").finish()
-    }
-}
-
-impl<T> TableWriteGuard<'_, T> {
     // When the WriteGuard is dropped, call to this function in order to swap
     // the active and standby tables. All futures ReadGuards will now be from
     // what was the standby_table which received all the updates during the
     // lifetime of TableWriteGuard. TableWriteGuard must be dropped after this
     // and only called after the Writer makes sure no ReadGuards are left
     // pointing to the new standby_table.
-    pub fn swap_active_and_standby(&mut self) {
+    pub fn swap_active_and_standby(&self) {
         let active_table = self.active_table.load(Ordering::SeqCst);
         let standby_table = self.standby_table.load(Ordering::SeqCst);
         assert_ne!(active_table, standby_table);
@@ -125,46 +125,19 @@ impl<T> TableWriteGuard<'_, T> {
     }
 }
 
-// TODO: consider adding "T: ?Sized" like std::sync::RwLock.
-impl<'w, T> std::ops::Deref for TableWriteGuard<'w, T> {
-    type Target = T;
-
-    /// Memory safety (valid pointer) is guaranteed by the class. See class
-    /// level comment.
-    ///
-    /// This is thread safe as long as the user guarantees that only 1
-    /// TableWriteGuard can exist at a time.
-    fn deref(&self) -> &Self::Target {
-        unsafe { &*self.standby_table.load(Ordering::SeqCst) }
+impl<T> Drop for Table<T> {
+    fn drop(&mut self) {
+        // Memory safety (valid pointer) is guaranteed by the class. See class
+        // level comment.
+        unsafe {
+            let _active_table = Box::from_raw(self.active_table.load(Ordering::SeqCst));
+            let _standby_table = Box::from_raw(self.standby_table.load(Ordering::SeqCst));
+        }
     }
 }
 
-impl<'w, T> std::ops::DerefMut for TableWriteGuard<'w, T> {
-    /// Memory safety (valid pointer) is guaranteed by the class. See class
-    /// level comment.
-    ///
-    /// The thread safety of dereferencing this table is not guaranteed within
-    /// this module because Table cannot guarantee that only 1 thread has a
-    /// TableWriteGuard. Rather this requires keeping Table as private to the
-    /// crate and ensuring the following properties:
-    /// 1. We guarantee in 'await_standby_table_free' before WriteGuard creation
-    ///    that there are no ReadGuards trying to read from this table.
-    /// 2. There can only be 1 Writer for this table (no copy/clone interface).
-    ///    There can only be 1 WriteGuard for this Writer (borrow checker should
-    ///    enforce).
-    /// 3. Readers will only switch to using this table when they are swapped on
-    ///    TableWriteGuard::drop.
-    fn deref_mut(&mut self) -> &mut T {
-        unsafe { &mut *self.standby_table.load(Ordering::SeqCst) }
-    }
-}
-
-impl<'w, T: fmt::Debug> fmt::Debug for TableWriteGuard<'w, T> {
+impl<T: fmt::Debug> fmt::Debug for Table<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TableWriteGuard")
-            .field("standby_table", unsafe {
-                &*self.standby_table.load(Ordering::SeqCst)
-            })
-            .finish()
+        f.debug_struct("Table").finish()
     }
 }

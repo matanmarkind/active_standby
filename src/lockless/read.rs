@@ -86,7 +86,7 @@ impl<T> Reader<T> {
         fence(Ordering::SeqCst);
 
         ReadGuard {
-            active_table: self.table.read(),
+            active_table: self.table.active_table(),
             epoch: &self.my_epoch,
         }
     }
@@ -102,6 +102,7 @@ impl<T: fmt::Debug> fmt::Debug for Reader<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Reader")
             .field("num_readers", &self.readers.lock().unwrap().len())
+            .field("active_table", &*self.read())
             .finish()
     }
 }

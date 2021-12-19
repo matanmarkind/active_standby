@@ -10,7 +10,12 @@ pub struct AsLockHandle<T> {
 impl<T> AsLockHandle<T> {
     pub fn from_identical(t1: T, t2: T) -> AsLockHandle<T> {
         let writer = Writer::from_identical(t1, t2);
-        let reader = writer.new_reader();
+
+        // Getting a Reader at this point should be guaranteed to work since the
+        // Mutex within Writer has never been locked and therefore cannot be
+        // poisoned.
+        let reader = writer.new_reader().unwrap();
+
         AsLockHandle {
             writer: std::sync::Arc::new(writer),
             reader,
@@ -22,21 +27,6 @@ impl<T> AsLockHandle<T> {
     }
 }
 
-#[cfg(active_standby_compare_tables_equal)]
-impl<T> AsLockHandle<T>
-where
-    T: PartialEq + std::fmt::Debug,
-{
-    pub fn write(&self) -> LockResult<WriteGuard<'_, T>> {
-        let wg = self.writer.write()?;
-        if (*wg != *self.read()) {
-            return Err(PoisonError::new(wg));
-        }
-        Ok(wg)
-    }
-}
-
-#[cfg(not(active_standby_compare_tables_equal))]
 impl<T> AsLockHandle<T> {
     pub fn write(&self) -> LockResult<WriteGuard<'_, T>> {
         self.writer.write()
@@ -46,7 +36,7 @@ impl<T> AsLockHandle<T> {
 impl<T> Clone for AsLockHandle<T> {
     fn clone(&self) -> AsLockHandle<T> {
         let writer = std::sync::Arc::clone(&self.writer);
-        let reader = writer.new_reader();
+        let reader = self.reader.clone();
         AsLockHandle { writer, reader }
     }
 }

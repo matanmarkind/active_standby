@@ -1,7 +1,7 @@
 // Loom & crossbeam return the std PoisonError, so no need to use conditional
 // compilation.
 pub use std::sync::PoisonError;
-pub type LockResult<Guard> = Result<Guard, PoisonError<Option<Guard>>>;
+pub type LockResult<Guard> = Result<Guard, PoisonError<Guard>>;
 
 #[cfg(loom)]
 pub(crate) use loom::hint::spin_loop;

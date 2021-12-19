@@ -81,18 +81,15 @@ macro_rules! generate_lockless_aslockhandle {
             }
 
             pub fn write(&self) -> $crate::primitives::LockResult<WriteGuard<'_, $($($Inner),*)?>> {
+                // Type conversion from generic WriteGuard to the generated WriteGuard.
                 match self.inner.write() {
                     Ok(g) =>
                         Ok(WriteGuard {
                             guard: g
                         }),
                     Err(g) => {
-                        // Type conversion.
-                        if g.get_ref().is_none() {
-                            return Err($crate::primitives::PoisonError::new(None));
-                        }
                         Err($crate::primitives::PoisonError::new(
-                            Some(WriteGuard { guard: g.into_inner().unwrap() })
+                            WriteGuard { guard: g.into_inner() }
                         ))
                     }
                 }

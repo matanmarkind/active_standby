@@ -469,10 +469,10 @@ mod lockless_test {
             table.write().unwrap().push(12);
         }
 
-        assert_eq!(format!("{:?}", table), "AsLockHandle { writer: Writer { num_ops_to_replay: 1 }, reader: Reader { num_readers: 1 } }",);
+        assert_eq!(format!("{:?}", table), "AsLockHandle { writer: Writer { num_readers: 1, ops_to_replay: 1, standby_table: [] }, reader: Reader { num_readers: 1, active_table: [12] } }",);
         assert_eq!(
             format!("{:?}", table.write().unwrap()),
-            "WriteGuard { num_ops_to_replay: 0, standby_table: TableWriteGuard { standby_table: [12] } }",
+            "WriteGuard { swap_active_and_standby: true, num_readers: 1, ops_to_replay: 0, standby_table: [12] }",
         );
         assert_eq!(
             format!("{:?}", table.read()),
