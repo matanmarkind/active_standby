@@ -235,43 +235,43 @@ mod lockless_test {
     fn push() {
         let lock1 = lockless::AsLockHandle::<i32>::default();
         let lock2 = lock1.clone();
-        assert_eq!(lock1.read().len(), 0);
+        assert_eq!(lock1.read().unwrap().len(), 0);
 
         {
             let mut wg = lock1.write().unwrap();
             wg.push(2);
             assert_eq!(wg.len(), 1);
-            assert_eq!(lock2.read().len(), 0);
+            assert_eq!(lock2.read().unwrap().len(), 0);
         }
 
         // When the write guard is dropped it publishes the changes to the readers.
-        assert_eq!(*lock1.read(), vec![2]);
+        assert_eq!(*lock1.read().unwrap(), vec![2]);
         assert_eq!(*lock1.write().unwrap(), vec![2]);
-        assert_eq!(*lock1.read(), vec![2]);
+        assert_eq!(*lock1.read().unwrap(), vec![2]);
     }
 
     #[test]
     fn clear() {
         let aslock = lockless::AsLockHandle::<i32>::default();
-        assert_eq!(aslock.read().len(), 0);
+        assert_eq!(aslock.read().unwrap().len(), 0);
 
         {
             let aslock2 = aslock.clone();
             let mut wg = aslock.write().unwrap();
             wg.push(2);
             assert_eq!(wg.len(), 1);
-            assert_eq!(aslock2.read().len(), 0);
+            assert_eq!(aslock2.read().unwrap().len(), 0);
         }
 
         // When the write guard is dropped it publishes the changes to the readers.
-        assert_eq!(*aslock.read(), vec![2]);
+        assert_eq!(*aslock.read().unwrap(), vec![2]);
         assert_eq!(*aslock.write().unwrap(), vec![2]);
-        assert_eq!(*aslock.read(), vec![2]);
+        assert_eq!(*aslock.read().unwrap(), vec![2]);
 
         aslock.write().unwrap().clear();
-        assert_eq!(*aslock.read(), vec![]);
+        assert_eq!(*aslock.read().unwrap(), vec![]);
         assert_eq!(*aslock.write().unwrap(), vec![]);
-        assert_eq!(*aslock.read(), vec![]);
+        assert_eq!(*aslock.read().unwrap(), vec![]);
     }
 
     #[test]
@@ -286,9 +286,9 @@ mod lockless_test {
         }
 
         // When the write guard is dropped it publishes the changes to the readers.
-        assert_eq!(*table.read(), vec![2, 4]);
+        assert_eq!(*table.read().unwrap(), vec![2, 4]);
         assert_eq!(*table.write().unwrap(), vec![2, 4]);
-        assert_eq!(*table.read(), vec![2, 4]);
+        assert_eq!(*table.read().unwrap(), vec![2, 4]);
     }
 
     #[test]
@@ -301,9 +301,9 @@ mod lockless_test {
         }
 
         // When the write guard is dropped it publishes the changes to the readers.
-        assert_eq!(*table.read(), vec![Box::new(2)]);
+        assert_eq!(*table.read().unwrap(), vec![Box::new(2)]);
         assert_eq!(*table.write().unwrap(), vec![Box::new(2)]);
-        assert_eq!(*table.read(), vec![Box::new(2)]);
+        assert_eq!(*table.read().unwrap(), vec![Box::new(2)]);
     }
 
     #[test]
@@ -315,9 +315,9 @@ mod lockless_test {
             wg.reserve(123);
         }
 
-        assert!(table.read().capacity() >= 123);
+        assert!(table.read().unwrap().capacity() >= 123);
         assert!(table.write().unwrap().capacity() >= 123);
-        assert!(table.read().capacity() >= 123);
+        assert!(table.read().unwrap().capacity() >= 123);
     }
 
     #[test]
@@ -329,9 +329,9 @@ mod lockless_test {
             wg.reserve_exact(123);
         }
 
-        assert_eq!(table.read().capacity(), 123);
+        assert_eq!(table.read().unwrap().capacity(), 123);
         assert_eq!(table.write().unwrap().capacity(), 123);
-        assert_eq!(table.read().capacity(), 123);
+        assert_eq!(table.read().unwrap().capacity(), 123);
     }
 
     #[test]
@@ -346,9 +346,9 @@ mod lockless_test {
             wg.shrink_to_fit();
         }
 
-        assert_eq!(table.read().capacity(), 2);
+        assert_eq!(table.read().unwrap().capacity(), 2);
         assert_eq!(table.write().unwrap().capacity(), 2);
-        assert_eq!(table.read().capacity(), 2);
+        assert_eq!(table.read().unwrap().capacity(), 2);
     }
 
     #[test]
@@ -363,9 +363,9 @@ mod lockless_test {
             wg.truncate(3);
         }
 
-        assert_eq!(*table.read(), vec![0, 1, 2]);
+        assert_eq!(*table.read().unwrap(), vec![0, 1, 2]);
         assert_eq!(*table.write().unwrap(), vec![0, 1, 2]);
-        assert_eq!(*table.read(), vec![0, 1, 2]);
+        assert_eq!(*table.read().unwrap(), vec![0, 1, 2]);
     }
 
     #[test]
@@ -380,9 +380,9 @@ mod lockless_test {
             assert_eq!(wg.swap_remove(2), 2);
         }
 
-        assert_eq!(*table.read(), vec![0, 1, 4, 3]);
+        assert_eq!(*table.read().unwrap(), vec![0, 1, 4, 3]);
         assert_eq!(*table.write().unwrap(), vec![0, 1, 4, 3]);
-        assert_eq!(*table.read(), vec![0, 1, 4, 3]);
+        assert_eq!(*table.read().unwrap(), vec![0, 1, 4, 3]);
     }
 
     #[test]
@@ -397,12 +397,12 @@ mod lockless_test {
             }
             wg.insert(2, 10);
             assert_eq!(*wg, vec![0, 1, 10, 2, 3, 4]);
-            assert_eq!(*table2.read(), vec![]);
+            assert_eq!(*table2.read().unwrap(), vec![]);
         }
 
-        assert_eq!(*table.read(), vec![0, 1, 10, 2, 3, 4]);
+        assert_eq!(*table.read().unwrap(), vec![0, 1, 10, 2, 3, 4]);
         assert_eq!(*table.write().unwrap(), vec![0, 1, 10, 2, 3, 4]);
-        assert_eq!(*table.read(), vec![0, 1, 10, 2, 3, 4]);
+        assert_eq!(*table.read().unwrap(), vec![0, 1, 10, 2, 3, 4]);
     }
 
     #[test]
@@ -417,9 +417,9 @@ mod lockless_test {
             wg.retain(|element| element % 2 == 0);
         }
 
-        assert_eq!(*table.read(), vec![0, 2, 4]);
+        assert_eq!(*table.read().unwrap(), vec![0, 2, 4]);
         assert_eq!(*table.write().unwrap(), vec![0, 2, 4]);
-        assert_eq!(*table.read(), vec![0, 2, 4]);
+        assert_eq!(*table.read().unwrap(), vec![0, 2, 4]);
     }
 
     #[test]
@@ -434,9 +434,9 @@ mod lockless_test {
             assert_eq!(wg.drain(1..4).collect::<Vec<_>>(), vec![2, 3, 4]);
         }
 
-        assert_eq!(*table.read(), vec![1, 5]);
+        assert_eq!(*table.read().unwrap(), vec![1, 5]);
         assert_eq!(*table.write().unwrap(), vec![1, 5]);
-        assert_eq!(*table.read(), vec![1, 5]);
+        assert_eq!(*table.read().unwrap(), vec![1, 5]);
     }
 
     #[test]
@@ -457,9 +457,9 @@ mod lockless_test {
             assert_eq!(swapped, 2);
         }
 
-        assert_eq!(*table.read(), vec![1]);
+        assert_eq!(*table.read().unwrap(), vec![1]);
         assert_eq!(*table.write().unwrap(), vec![1]);
-        assert_eq!(*table.read(), vec![1]);
+        assert_eq!(*table.read().unwrap(), vec![1]);
     }
 
     #[test]
@@ -475,7 +475,7 @@ mod lockless_test {
             "WriteGuard { swap_active_and_standby: true, num_readers: 1, ops_to_replay: 0, standby_table: [12] }",
         );
         assert_eq!(
-            format!("{:?}", table.read()),
+            format!("{:?}", table.read().unwrap()),
             "ReadGuard { active_table: [12] }",
         );
     }

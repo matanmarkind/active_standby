@@ -93,7 +93,7 @@ impl<T> Writer<T> {
         let mut mg = match self.inner.lock() {
             Ok(mg) => mg,
             Err(e) => {
-                return Err(PoisonError::new(WriteGuard {
+                return Err(std::sync::PoisonError::new(WriteGuard {
                     guard: e.into_inner(),
                     swap_active_and_standby: false,
                 }));

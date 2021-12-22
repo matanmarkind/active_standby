@@ -8,6 +8,7 @@ pub struct AsLockHandle<T> {
 }
 
 impl<T> AsLockHandle<T> {
+    // TODO: Add specialization of from_identical which compares t1 & t2.
     pub fn from_identical(t1: T, t2: T) -> AsLockHandle<T> {
         let writer = Writer::from_identical(t1, t2);
 
@@ -22,12 +23,10 @@ impl<T> AsLockHandle<T> {
         }
     }
 
-    pub fn read(&self) -> ReadGuard<'_, T> {
-        self.reader.read()
+    pub fn read(&self) -> LockResult<ReadGuard<'_, T>> {
+        Ok(self.reader.read())
     }
-}
 
-impl<T> AsLockHandle<T> {
     pub fn write(&self) -> LockResult<WriteGuard<'_, T>> {
         self.writer.write()
     }

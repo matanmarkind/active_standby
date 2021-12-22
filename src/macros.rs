@@ -88,7 +88,7 @@ macro_rules! generate_lockless_aslockhandle {
                             guard: g
                         }),
                     Err(g) => {
-                        Err($crate::primitives::PoisonError::new(
+                        Err(std::sync::PoisonError::new(
                             WriteGuard { guard: g.into_inner() }
                         ))
                     }

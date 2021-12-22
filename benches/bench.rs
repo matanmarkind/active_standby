@@ -22,8 +22,9 @@
 // rust 2018.
 // https://doc.rust-lang.org/nightly/edition-guide/rust-2018/module-system/path-clarity.html
 extern crate test;
-use active_standby::primitives::lockless::Writer;
-use active_standby::primitives::{RwLock, UpdateTables};
+use active_standby::primitives::lockless::AsLockHandle;
+use active_standby::primitives::shared::RwLock;
+use active_standby::primitives::UpdateTables;
 use more_asserts::*;
 use std::sync::Arc;
 
@@ -103,9 +104,9 @@ fn plain_atomicbool(b: &mut test::bench::Bencher) {
 // to release the table.
 #[bench]
 fn lockless_wguard_without_rcontention(b: &mut test::bench::Bencher) {
-    let writer = Writer::<i32>::new(1);
+    let table = AsLockHandle::<i32>::from_identical(1, 1);
     b.iter(|| {
-        let mut wg = writer.write();
+        let mut wg = table.write().unwrap();
         wg.update_tables(AddOne {});
     });
 }
@@ -135,7 +136,7 @@ fn lockless_wguard_rw_contention(b: &mut test::bench::Bencher) {
             let table = table.clone();
             std::thread::spawn(move || {
                 // Continually grab read guards.
-                while *table.read() != 0 {
+                while *table.read().unwrap() != 0 {
                     // Hold the read guards to increase the chance of read 'contention'.
                     std::thread::sleep(std::time::Duration::from_micros(10));
                 }
@@ -146,13 +147,13 @@ fn lockless_wguard_rw_contention(b: &mut test::bench::Bencher) {
     let _writer_handle = {
         let table = table.clone();
         std::thread::spawn(move || loop {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             wg.add_one();
         })
     };
 
     b.iter(|| {
-        let mut wg = table.write();
+        let mut wg = table.write().unwrap();
         wg.add_one();
     });
 }
@@ -221,11 +222,10 @@ fn rwlock_wguard_rw_contention(b: &mut test::bench::Bencher) {
 // are there are no other readers.
 #[bench]
 fn lockless_rguard_no_contention(b: &mut test::bench::Bencher) {
-    let writer = Writer::<i32>::new(1);
-    let reader = writer.new_reader();
+    let table = AsLockHandle::<i32>::from_identical(1, 1);
 
     b.iter(|| {
-        let rg = reader.read();
+        let rg = table.read().unwrap();
         assert_eq!(*rg, 1);
     });
 }
@@ -242,14 +242,14 @@ fn shared_rguard_no_contention(b: &mut test::bench::Bencher) {
 // The main test, since our core guarantee is that reads are always wait free
 // regardless of read and write usage.
 fn lockless_rguard_rw_contention(b: &mut test::bench::Bencher, num_readers: u32) {
-    let table = lockless::AsLockHandle::new(1);
+    let table = lockless::AsLockHandle::from_identical(1, 1);
 
     let _reader_handles: Vec<_> = (0..num_readers)
         .map(|_| {
             let table = table.clone();
             std::thread::spawn(move || {
                 // Continually grab read guards.
-                while *table.read() != 0 {
+                while *table.read().unwrap() != 0 {
                     // Hold the read guards to increase the change of read 'contention'.
                     std::thread::sleep(std::time::Duration::from_micros(100));
                 }
@@ -259,13 +259,13 @@ fn lockless_rguard_rw_contention(b: &mut test::bench::Bencher, num_readers: u32)
 
     let table2 = table.clone();
     let _writer_handle = std::thread::spawn(move || loop {
-        let mut wg = table2.write();
+        let mut wg = table2.write().unwrap();
         std::thread::sleep(std::time::Duration::from_micros(100));
         wg.add_one();
     });
 
     b.iter(|| {
-        let rg = table.read();
+        let rg = table.read().unwrap();
         assert_gt!(*rg, 0);
     });
 }

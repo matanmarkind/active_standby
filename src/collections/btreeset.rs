@@ -164,9 +164,9 @@ mod lockless_test {
             assert_eq!(*wg, expected);
         }
 
-        assert_eq!(*table.read(), expected);
+        assert_eq!(*table.read().unwrap(), expected);
         assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read(), expected);
+        assert_eq!(*table.read().unwrap(), expected);
     }
 
     #[test]
@@ -179,9 +179,9 @@ mod lockless_test {
             wg.clear();
         }
 
-        assert!(table.read().is_empty());
+        assert!(table.read().unwrap().is_empty());
         assert!(table.write().unwrap().is_empty());
-        assert!(table.read().is_empty());
+        assert!(table.read().unwrap().is_empty());
     }
 
     #[test]
@@ -201,9 +201,9 @@ mod lockless_test {
             assert_eq!(*wg, expected);
         }
 
-        assert_eq!(*table.read(), expected);
+        assert_eq!(*table.read().unwrap(), expected);
         assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read(), expected);
+        assert_eq!(*table.read().unwrap(), expected);
     }
 
     #[test]
@@ -231,9 +231,9 @@ mod lockless_test {
             assert_eq!(*wg, expected);
         }
 
-        assert_eq!(*table.read(), expected);
+        assert_eq!(*table.read().unwrap(), expected);
         assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read(), expected);
+        assert_eq!(*table.read().unwrap(), expected);
     }
 
     #[test]
@@ -252,7 +252,7 @@ mod lockless_test {
             "WriteGuard { swap_active_and_standby: true, num_readers: 1, ops_to_replay: 0, standby_table: {12} }",
         );
         assert_eq!(
-            format!("{:?}", table.read()),
+            format!("{:?}", table.read().unwrap()),
             "ReadGuard { active_table: {12} }",
         );
     }

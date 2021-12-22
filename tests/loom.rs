@@ -12,7 +12,7 @@
 #[cfg(loom)]
 #[cfg(test)]
 mod loom_tests {
-    use active_standby::primitives::lockless::Writer;
+    use active_standby::primitives::lockless::AsLockHandle;
     use active_standby::primitives::shared::AsLock;
     use active_standby::primitives::UpdateTables;
     use loom::sync::{Arc, Condvar, LockResult, Mutex, MutexGuard};
@@ -54,25 +54,34 @@ mod loom_tests {
     #[test]
     fn lockless_single_thread() {
         loom::model(|| {
-            let writer = Writer::<i32>::new(1);
+            let table = AsLockHandle::<i32>::from_identical(1, 1);
             {
-                let mut wg = writer.write().unwrap();
+                let mut wg = table.write().unwrap();
                 wg.update_tables(AddOne {});
             }
 
-            let reader = writer.new_reader();
-            let val = thread::spawn(move || *reader.read()).join().unwrap();
+            let val;
+            {
+                let table = table.clone();
+                val = thread::spawn(move || *table.read().unwrap())
+                    .join()
+                    .unwrap();
+            }
 
             {
-                let mut wg = writer.write().unwrap();
+                let mut wg = table.write().unwrap();
                 wg.update_tables(AddOne {});
             }
 
             assert_eq!(val, 2);
 
-            let reader = writer.new_reader();
-            let val = thread::spawn(move || *reader.read()).join().unwrap();
-            assert_eq!(val, 3);
+            {
+                let table = table.clone();
+                let val = thread::spawn(move || *table.read().unwrap())
+                    .join()
+                    .unwrap();
+                assert_eq!(val, 3);
+            }
         });
     }
 
@@ -110,19 +119,19 @@ mod loom_tests {
         // epoch counter shows a different value when trying to claim a
         // WriteGuard. https://github.com/tokio-rs/loom/issues/233.
         loom::model(|| {
-            let writer = Writer::<i32>::new(0);
+            let table = AsLockHandle::<i32>::from_identical(0, 0);
 
             let cond_cv = Arc::new((Mutex::new(0), Condvar::new()));
-            let reader = writer.new_reader();
             let writer_handle = {
                 let cond_cv = Arc::clone(&cond_cv);
+                let table = table.clone();
 
                 thread::spawn(move || {
                     let (cond, cv) = &*cond_cv;
 
                     let mut step_num;
                     {
-                        let mut wg = Some(writer.write().unwrap());
+                        let mut wg = Some(table.write().unwrap());
                         wg.as_mut().unwrap().update_tables(AddOne {});
 
                         *cond.lock().unwrap() += 1;
@@ -148,7 +157,7 @@ mod loom_tests {
                         wait_while(&cv, cond.lock().unwrap(), |step| *step < 1).unwrap();
 
                     // Grab reader and while holding the WriteGuard.
-                    rg = reader.read();
+                    rg = table.read().unwrap();
                     assert_eq!(*rg, 0);
 
                     *step_num += 1;
@@ -159,7 +168,7 @@ mod loom_tests {
                 assert_eq!(*rg, 0);
             }
             // Grabbing a new reader will show the newly published value.
-            assert_eq!(*reader.read(), 2);
+            assert_eq!(*table.read().unwrap(), 2);
 
             // Cannot join if there are any ReadGuards alive in this thread
             // since this may deadlock.

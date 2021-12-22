@@ -106,7 +106,7 @@
 //!     let table = lockless::AsLockHandle::new(0);
 //!     let table2 = table.clone();
 //!     let handle = std::thread::spawn(move || {
-//!         while *table2.read() != 1 {
+//!         while *table2.read().unwrap() != 1 {
 //!             sleep(Duration::from_micros(100));
 //!         }
 //!     });
@@ -160,16 +160,15 @@ mod shared;
 /// struct using one of the macros and then just implement the mutations for the
 /// generated WriteGuard.
 pub mod primitives {
-    pub use crate::types::{
-        LockResult, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard, UpdateTables,
-    };
+    pub use crate::types::{LockResult, UpdateTables};
     pub mod lockless {
         pub use crate::lockless::aslockhandle::AsLockHandle;
-        pub use crate::lockless::read::{ReadGuard, Reader};
-        pub use crate::lockless::write::{WriteGuard, Writer};
+        pub use crate::lockless::read::ReadGuard;
+        pub use crate::lockless::write::WriteGuard;
     }
     pub mod shared {
         pub use crate::shared::aslock::{AsLock, WriteGuard};
+        pub use crate::types::RwLock;
     }
 }
 

@@ -45,13 +45,6 @@ pub struct Table<T> {
 }
 
 impl<T> Table<T> {
-    pub fn new(t: T) -> Table<T>
-    where
-        T: Clone,
-    {
-        Table::from_identical(t.clone(), t)
-    }
-
     pub fn from_identical(t1: T, t2: T) -> Table<T> {
         Table {
             active_table: AtomicPtr::new(Box::into_raw(Box::new(t1))),
