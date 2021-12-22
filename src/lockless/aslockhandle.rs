@@ -32,6 +32,24 @@ impl<T> AsLockHandle<T> {
     }
 }
 
+impl<T> AsLock<T>
+where
+    T: Clone,
+{
+    pub fn new(t: T) -> AsLock<T> {
+        Self::from_identical(t.clone(), t)
+    }
+}
+
+impl<T> AsLock<T>
+where
+    T: Default,
+{
+    pub fn default() -> AsLock<T> {
+        Self::from_identical(T::default(), T::default())
+    }
+}
+
 impl<T> Clone for AsLockHandle<T> {
     fn clone(&self) -> AsLockHandle<T> {
         let writer = std::sync::Arc::clone(&self.writer);
