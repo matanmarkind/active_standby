@@ -32,20 +32,20 @@ impl<T> AsLockHandle<T> {
     }
 }
 
-impl<T> AsLock<T>
+impl<T> AsLockHandle<T>
 where
     T: Clone,
 {
-    pub fn new(t: T) -> AsLock<T> {
+    pub fn new(t: T) -> AsLockHandle<T> {
         Self::from_identical(t.clone(), t)
     }
 }
 
-impl<T> AsLock<T>
+impl<T> AsLockHandle<T>
 where
     T: Default,
 {
-    pub fn default() -> AsLock<T> {
+    pub fn default() -> AsLockHandle<T> {
         Self::from_identical(T::default(), T::default())
     }
 }

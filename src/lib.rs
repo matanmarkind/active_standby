@@ -122,13 +122,13 @@
 //!     let table = Arc::new(shared::AsLock::new(0));
 //!     let table2 = Arc::clone(&table);
 //!     let handle = std::thread::spawn(move || {
-//!         while *table2.read() != 1 {
+//!         while *table2.read().unwrap() != 1 {
 //!             sleep(Duration::from_micros(100));
 //!         }
 //!     });
 //!
 //!     {
-//!         let mut wg = table.write();
+//!         let mut wg = table.write().unwrap();
 //!         wg.add_one();
 //!     }
 //!     handle.join();

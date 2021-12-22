@@ -273,30 +273,30 @@ mod shared_test {
 
         let table = Arc::new(shared::AsLock::<&str>::default());
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             wg.insert("hello");
             wg.insert("world");
             assert_eq!(*wg, expected);
         }
 
-        assert_eq!(*table.read(), expected);
-        assert_eq!(*table.write(), expected);
-        assert_eq!(*table.read(), expected);
+        assert_eq!(*table.read().unwrap(), expected);
+        assert_eq!(*table.write().unwrap(), expected);
+        assert_eq!(*table.read().unwrap(), expected);
     }
 
     #[test]
     fn clear() {
         let table = shared::AsLock::<&str>::default();
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             wg.insert("hello");
             wg.insert("world");
             wg.clear();
         }
 
-        assert!(table.read().is_empty());
-        assert!(table.write().is_empty());
-        assert!(table.read().is_empty());
+        assert!(table.read().unwrap().is_empty());
+        assert!(table.write().unwrap().is_empty());
+        assert!(table.read().unwrap().is_empty());
     }
 
     #[test]
@@ -306,7 +306,7 @@ mod shared_test {
         };
         let table = shared::AsLock::<&str>::default();
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             wg.insert("hello");
             wg.insert("world");
             wg.insert("I");
@@ -316,9 +316,9 @@ mod shared_test {
             assert_eq!(*wg, expected);
         }
 
-        assert_eq!(*table.read(), expected);
-        assert_eq!(*table.write(), expected);
-        assert_eq!(*table.read(), expected);
+        assert_eq!(*table.read().unwrap(), expected);
+        assert_eq!(*table.write().unwrap(), expected);
+        assert_eq!(*table.read().unwrap(), expected);
     }
 
     #[test]
@@ -340,31 +340,31 @@ mod shared_test {
                 "name's" ,
                 "joe" ,
             };
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             wg.append(map1);
             wg.append(map2);
             assert_eq!(*wg, expected);
         }
 
-        assert_eq!(*table.read(), expected);
-        assert_eq!(*table.write(), expected);
-        assert_eq!(*table.read(), expected);
+        assert_eq!(*table.read().unwrap(), expected);
+        assert_eq!(*table.write().unwrap(), expected);
+        assert_eq!(*table.read().unwrap(), expected);
     }
 
     #[test]
     fn debug_str() {
         let table = shared::AsLock::<i32>::default();
         {
-            table.write().insert(12);
+            table.write().unwrap().insert(12);
         }
 
         assert_eq!(format!("{:?}", table), "AsLock { num_ops_to_replay: 1 }",);
         assert_eq!(
-            format!("{:?}", table.write()),
+            format!("{:?}", table.write().unwrap()),
             "WriteGuard { num_ops_to_replay: 0, standby_table: TableWriteGuard { standby_table: {12} } }",
         );
         assert_eq!(
-            format!("{:?}", table.read()),
+            format!("{:?}", table.read().unwrap()),
             "ShardedLockReadGuard { lock: ShardedLock { data: {12} } }",
         );
     }

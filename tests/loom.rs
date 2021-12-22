@@ -90,22 +90,26 @@ mod loom_tests {
         loom::model(|| {
             let table = Arc::new(AsLock::<i32>::new(1));
             {
-                let mut wg = table.write();
+                let mut wg = table.write().unwrap();
                 wg.update_tables(AddOne {});
             }
 
             let table2 = Arc::clone(&table);
-            let val = thread::spawn(move || *table2.read()).join().unwrap();
+            let val = thread::spawn(move || *table2.read().unwrap())
+                .join()
+                .unwrap();
 
             {
-                let mut wg = table.write();
+                let mut wg = table.write().unwrap();
                 wg.update_tables(AddOne {});
             }
 
             assert_eq!(val, 2);
 
             let table2 = Arc::clone(&table);
-            let val = thread::spawn(move || *table2.read()).join().unwrap();
+            let val = thread::spawn(move || *table2.read().unwrap())
+                .join()
+                .unwrap();
             assert_eq!(val, 3);
         });
     }
@@ -181,34 +185,34 @@ mod loom_tests {
         loom::model(|| {
             let table = Arc::new(AsLock::<i32>::new(1));
             {
-                let mut wg = table.write();
+                let mut wg = table.write().unwrap();
                 wg.update_tables(AddOne {});
             }
 
             let table2 = Arc::clone(&table);
             let writer_handle = thread::spawn(move || {
                 {
-                    let mut wg = table2.write();
+                    let mut wg = table2.write().unwrap();
                     wg.update_tables(AddOne {});
                     wg.update_tables(AddOne {});
                 }
-                let mut wg = table2.write();
+                let mut wg = table2.write().unwrap();
                 wg.update_tables(SetZero {});
             });
 
             let table2 = Arc::clone(&table);
             let reader_handle = thread::spawn(move || {
-                assert_eq!(*table2.read() % 2, 0);
+                assert_eq!(*table2.read().unwrap() % 2, 0);
             });
 
-            assert_eq!(*table.read() % 2, 0);
+            assert_eq!(*table.read().unwrap() % 2, 0);
 
             // Cannot join if there are any ReadGuards alive in this thread
             // since this may deadlock.
             assert!(writer_handle.join().is_ok());
             assert!(reader_handle.join().is_ok());
 
-            assert_eq!(*table.read(), 0);
+            assert_eq!(*table.read().unwrap(), 0);
         });
     }
 }

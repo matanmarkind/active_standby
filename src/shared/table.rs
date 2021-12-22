@@ -8,6 +8,7 @@ pub struct Table<T> {
 }
 
 pub struct TableWriteGuard<'w, T> {
+    swap_active_and_standby: bool,
     is_table0_active: &'w RwLock<bool>,
     standby_table: Option<RwLockWriteGuard<'w, T>>,
 }
@@ -21,7 +22,7 @@ impl<T> Table<T> {
         }
     }
 
-    pub fn read(&self) -> RwLockReadGuard<'_, T> {
+    pub fn read(&self) -> LockResult<RwLockReadGuard<'_, T>> {
         // Use a read guard to make sure there is no race between:
         // - read guards reading from `is_table0_active` and grabbing a
         //   reader/writer.
@@ -41,22 +42,25 @@ impl<T> Table<T> {
         // By using an RwLock to guard the entire call of read & write, we
         // guarantee that a reader will never get stuck waiting for a writer to
         // release a given table.
-        let guard = self.is_table0_active.read().unwrap();
-        let is_table0_active = *guard;
+        let is_table0_active = self.is_table0_active.read().unwrap();
 
         let active_table;
-        if is_table0_active {
-            active_table = self.table0.read().unwrap();
+        if *is_table0_active {
+            active_table = self.table0.read();
         } else {
-            active_table = self.table1.read().unwrap();
+            active_table = self.table1.read();
         }
+
+        // Make sure to unlock the bool only after table selection.
+        std::sync::atomic::compiler_fence(Ordering::SeqCst);
+        drop(is_table0_active);
 
         active_table
     }
 
     // Caller must ensure that 'write' is single threaded, or else we will block
     // readers.
-    pub fn write(&self) -> TableWriteGuard<'_, T> {
+    pub fn write(&self) -> LockResult<TableWriteGuard<'_, T>> {
         // We don't need to worry about the RwLock being fair:
         // - Only 1 WriteGuard can exist at a time, and when it updates the
         //   active and standby tables, this is done while write locking
@@ -68,20 +72,36 @@ impl<T> Table<T> {
         //   guards, never incoming attempts to read lock.
         let standby_table;
         if *self.is_table0_active.read().unwrap() {
-            standby_table = self.table1.write().unwrap();
+            standby_table = self.table1.write();
         } else {
-            standby_table = self.table0.write().unwrap();
+            standby_table = self.table0.write();
         }
 
-        TableWriteGuard {
-            is_table0_active: &self.is_table0_active,
-            standby_table: Some(standby_table),
+        match standby_table {
+            Ok(st) => Ok(TableWriteGuard {
+                swap_active_and_standby: true,
+                is_table0_active: &self.is_table0_active,
+                standby_table: Some(st),
+            }),
+            Err(e) => Err(std::sync::PoisonError::new(TableWriteGuard {
+                swap_active_and_standby: false,
+                is_table0_active: &self.is_table0_active,
+                standby_table: Some(e.into_inner()),
+            })),
         }
     }
 }
 
 impl<T> Drop for TableWriteGuard<'_, T> {
     fn drop(&mut self) {
+        if !self.swap_active_and_standby {
+            // Should only be the case if the Mutex guarding InnerWriter was
+            // poisoned. This means that the Active & Standby tables are locked,
+            // so hopefully readers should be able to safely continue reading a
+            // stale state.
+            return;
+        }
+
         // Drop the WriteGuard to standby table before write guarding
         // 'is_table0_active'. Otherwise this triggers TSAN's lock inversion
         // (deadlock detector) because in 'read' we lock 'is_table0_active' and
@@ -92,6 +112,7 @@ impl<T> Drop for TableWriteGuard<'_, T> {
         // This may be a false-positive similar to
         // https://github.com/google/sanitizers/issues/814.
         self.standby_table = None;
+        std::sync::atomic::compiler_fence(Ordering::SeqCst);
 
         let mut guard = self.is_table0_active.write().unwrap(); // !!!!!!!!!!!!!!!!!!!
         *guard = !(*guard);
@@ -130,10 +151,10 @@ mod test {
         let table = Table::from_identical(5, 5);
 
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             *wg += 1;
         }
 
-        assert_eq!(*table.read(), 6);
+        assert_eq!(*table.read().unwrap(), 6);
     }
 }

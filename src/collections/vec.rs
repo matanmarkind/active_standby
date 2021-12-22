@@ -491,17 +491,17 @@ mod shared_test {
     fn push() {
         let lock1 = Arc::new(shared::AsLock::<i32>::default());
         let lock2 = Arc::clone(&lock1);
-        assert_eq!(lock1.read().len(), 0);
+        assert_eq!(lock1.read().unwrap().len(), 0);
 
         {
-            let mut wg = lock1.write();
+            let mut wg = lock1.write().unwrap();
             wg.push(2);
             assert_eq!(wg.len(), 1);
             {
                 // Perform check in another thread to avoid potential deadlock
                 // (calling both read and write on aslock at the same time).
                 thread::spawn(move || {
-                    assert_eq!(lock2.read().len(), 0);
+                    assert_eq!(lock2.read().unwrap().len(), 0);
                 })
                 .join()
                 .unwrap();
@@ -509,18 +509,18 @@ mod shared_test {
         }
 
         // When the write guard is dropped it publishes the changes to the readers.
-        assert_eq!(*lock1.read(), vec![2]);
-        assert_eq!(*lock1.write(), vec![2]);
-        assert_eq!(*lock1.read(), vec![2]);
+        assert_eq!(*lock1.read().unwrap(), vec![2]);
+        assert_eq!(*lock1.write().unwrap(), vec![2]);
+        assert_eq!(*lock1.read().unwrap(), vec![2]);
     }
 
     #[test]
     fn clear() {
         let aslock = Arc::new(shared::AsLock::<i32>::default());
-        assert_eq!(aslock.read().len(), 0);
+        assert_eq!(aslock.read().unwrap().len(), 0);
 
         {
-            let mut wg = aslock.write();
+            let mut wg = aslock.write().unwrap();
             wg.push(2);
             assert_eq!(wg.len(), 1);
             {
@@ -528,7 +528,7 @@ mod shared_test {
                 // (calling both read and write on aslock at the same time).
                 let aslock = Arc::clone(&aslock);
                 thread::spawn(move || {
-                    assert_eq!(aslock.read().len(), 0);
+                    assert_eq!(aslock.read().unwrap().len(), 0);
                 })
                 .join()
                 .unwrap();
@@ -536,21 +536,21 @@ mod shared_test {
         }
 
         // When the write guard is dropped it publishes the changes to the readers.
-        assert_eq!(*aslock.read(), vec![2]);
-        assert_eq!(*aslock.write(), vec![2]);
-        assert_eq!(*aslock.read(), vec![2]);
+        assert_eq!(*aslock.read().unwrap(), vec![2]);
+        assert_eq!(*aslock.write().unwrap(), vec![2]);
+        assert_eq!(*aslock.read().unwrap(), vec![2]);
 
-        aslock.write().clear();
-        assert_eq!(*aslock.read(), vec![]);
-        assert_eq!(*aslock.write(), vec![]);
-        assert_eq!(*aslock.read(), vec![]);
+        aslock.write().unwrap().clear();
+        assert_eq!(*aslock.read().unwrap(), vec![]);
+        assert_eq!(*aslock.write().unwrap(), vec![]);
+        assert_eq!(*aslock.read().unwrap(), vec![]);
     }
 
     #[test]
     fn pop() {
         let table = Arc::new(shared::AsLock::<i32>::default());
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             wg.push(2);
             wg.push(3);
             wg.pop();
@@ -558,9 +558,9 @@ mod shared_test {
         }
 
         // When the write guard is dropped it publishes the changes to the readers.
-        assert_eq!(*table.read(), vec![2, 4]);
-        assert_eq!(*table.write(), vec![2, 4]);
-        assert_eq!(*table.read(), vec![2, 4]);
+        assert_eq!(*table.read().unwrap(), vec![2, 4]);
+        assert_eq!(*table.write().unwrap(), vec![2, 4]);
+        assert_eq!(*table.read().unwrap(), vec![2, 4]);
     }
 
     #[test]
@@ -568,14 +568,14 @@ mod shared_test {
         let table = shared::AsLock::<Box<i32>>::default();
 
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             wg.push(Box::new(2));
         }
 
         // When the write guard is dropped it publishes the changes to the readers.
-        assert_eq!(*table.read(), vec![Box::new(2)]);
-        assert_eq!(*table.write(), vec![Box::new(2)]);
-        assert_eq!(*table.read(), vec![Box::new(2)]);
+        assert_eq!(*table.read().unwrap(), vec![Box::new(2)]);
+        assert_eq!(*table.write().unwrap(), vec![Box::new(2)]);
+        assert_eq!(*table.read().unwrap(), vec![Box::new(2)]);
     }
 
     #[test]
@@ -583,13 +583,13 @@ mod shared_test {
         let table = Arc::new(shared::AsLock::<i32>::default());
 
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             wg.reserve(123);
         }
 
-        assert!(table.read().capacity() >= 123);
-        assert!(table.write().capacity() >= 123);
-        assert!(table.read().capacity() >= 123);
+        assert!(table.read().unwrap().capacity() >= 123);
+        assert!(table.write().unwrap().capacity() >= 123);
+        assert!(table.read().unwrap().capacity() >= 123);
     }
 
     #[test]
@@ -597,13 +597,13 @@ mod shared_test {
         let table = Arc::new(shared::AsLock::<i32>::default());
 
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             wg.reserve_exact(123);
         }
 
-        assert_eq!(table.read().capacity(), 123);
-        assert_eq!(table.write().capacity(), 123);
-        assert_eq!(table.read().capacity(), 123);
+        assert_eq!(table.read().unwrap().capacity(), 123);
+        assert_eq!(table.write().unwrap().capacity(), 123);
+        assert_eq!(table.read().unwrap().capacity(), 123);
     }
 
     #[test]
@@ -611,16 +611,16 @@ mod shared_test {
         let table = Arc::new(shared::AsLock::<i32>::default());
 
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             wg.reserve_exact(123);
             wg.push(2);
             wg.push(3);
             wg.shrink_to_fit();
         }
 
-        assert_eq!(table.read().capacity(), 2);
-        assert_eq!(table.write().capacity(), 2);
-        assert_eq!(table.read().capacity(), 2);
+        assert_eq!(table.read().unwrap().capacity(), 2);
+        assert_eq!(table.write().unwrap().capacity(), 2);
+        assert_eq!(table.read().unwrap().capacity(), 2);
     }
 
     #[test]
@@ -628,16 +628,16 @@ mod shared_test {
         let table = Arc::new(shared::AsLock::<i32>::default());
 
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             for i in 0..10 {
                 wg.push(i);
             }
             wg.truncate(3);
         }
 
-        assert_eq!(*table.read(), vec![0, 1, 2]);
-        assert_eq!(*table.write(), vec![0, 1, 2]);
-        assert_eq!(*table.read(), vec![0, 1, 2]);
+        assert_eq!(*table.read().unwrap(), vec![0, 1, 2]);
+        assert_eq!(*table.write().unwrap(), vec![0, 1, 2]);
+        assert_eq!(*table.read().unwrap(), vec![0, 1, 2]);
     }
 
     #[test]
@@ -645,16 +645,16 @@ mod shared_test {
         let table = shared::AsLock::<i32>::default();
 
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             for i in 0..5 {
                 wg.push(i);
             }
             assert_eq!(wg.swap_remove(2), 2);
         }
 
-        assert_eq!(*table.read(), vec![0, 1, 4, 3]);
-        assert_eq!(*table.write(), vec![0, 1, 4, 3]);
-        assert_eq!(*table.read(), vec![0, 1, 4, 3]);
+        assert_eq!(*table.read().unwrap(), vec![0, 1, 4, 3]);
+        assert_eq!(*table.write().unwrap(), vec![0, 1, 4, 3]);
+        assert_eq!(*table.read().unwrap(), vec![0, 1, 4, 3]);
     }
 
     #[test]
@@ -662,7 +662,7 @@ mod shared_test {
         let table = Arc::new(shared::AsLock::<i32>::default());
 
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             for i in 0..5 {
                 wg.push(i);
             }
@@ -673,16 +673,16 @@ mod shared_test {
                 // (calling both read and write on aslock at the same time).
                 let table = Arc::clone(&table);
                 thread::spawn(move || {
-                    assert_eq!(*table.read(), vec![]);
+                    assert_eq!(*table.read().unwrap(), vec![]);
                 })
                 .join()
                 .unwrap();
             }
         }
 
-        assert_eq!(*table.read(), vec![0, 1, 10, 2, 3, 4]);
-        assert_eq!(*table.write(), vec![0, 1, 10, 2, 3, 4]);
-        assert_eq!(*table.read(), vec![0, 1, 10, 2, 3, 4]);
+        assert_eq!(*table.read().unwrap(), vec![0, 1, 10, 2, 3, 4]);
+        assert_eq!(*table.write().unwrap(), vec![0, 1, 10, 2, 3, 4]);
+        assert_eq!(*table.read().unwrap(), vec![0, 1, 10, 2, 3, 4]);
     }
 
     #[test]
@@ -690,16 +690,16 @@ mod shared_test {
         let table = shared::AsLock::<i32>::default();
 
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             for i in 0..5 {
                 wg.push(i);
             }
             wg.retain(|element| element % 2 == 0);
         }
 
-        assert_eq!(*table.read(), vec![0, 2, 4]);
-        assert_eq!(*table.write(), vec![0, 2, 4]);
-        assert_eq!(*table.read(), vec![0, 2, 4]);
+        assert_eq!(*table.read().unwrap(), vec![0, 2, 4]);
+        assert_eq!(*table.write().unwrap(), vec![0, 2, 4]);
+        assert_eq!(*table.read().unwrap(), vec![0, 2, 4]);
     }
 
     #[test]
@@ -707,16 +707,16 @@ mod shared_test {
         let table = shared::AsLock::<i32>::new(vec![]);
 
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             for i in 0..5 {
                 wg.push(i + 1);
             }
             assert_eq!(wg.drain(1..4).collect::<Vec<_>>(), vec![2, 3, 4]);
         }
 
-        assert_eq!(*table.read(), vec![1, 5]);
-        assert_eq!(*table.write(), vec![1, 5]);
-        assert_eq!(*table.read(), vec![1, 5]);
+        assert_eq!(*table.read().unwrap(), vec![1, 5]);
+        assert_eq!(*table.write().unwrap(), vec![1, 5]);
+        assert_eq!(*table.read().unwrap(), vec![1, 5]);
     }
 
     #[test]
@@ -724,7 +724,7 @@ mod shared_test {
         let table = shared::AsLock::<i32>::from_identical(vec![], vec![]);
 
         {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             for i in 0..5 {
                 wg.push(i + 1);
             }
@@ -737,25 +737,25 @@ mod shared_test {
             assert_eq!(swapped, 2);
         }
 
-        assert_eq!(*table.read(), vec![1]);
-        assert_eq!(*table.write(), vec![1]);
-        assert_eq!(*table.read(), vec![1]);
+        assert_eq!(*table.read().unwrap(), vec![1]);
+        assert_eq!(*table.write().unwrap(), vec![1]);
+        assert_eq!(*table.read().unwrap(), vec![1]);
     }
 
     #[test]
     fn debug_str() {
         let table = Arc::new(shared::AsLock::<i32>::default());
         {
-            table.write().push(12);
+            table.write().unwrap().push(12);
         }
 
         assert_eq!(format!("{:?}", table), "AsLock { num_ops_to_replay: 1 }",);
         assert_eq!(
-            format!("{:?}", table.write()),
+            format!("{:?}", table.write().unwrap()),
             "WriteGuard { num_ops_to_replay: 0, standby_table: TableWriteGuard { standby_table: [12] } }",
         );
         assert_eq!(
-            format!("{:?}", table.read()),
+            format!("{:?}", table.read().unwrap()),
             "ShardedLockReadGuard { lock: ShardedLock { data: [12] } }",
         );
     }

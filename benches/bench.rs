@@ -114,7 +114,7 @@ fn lockless_wguard_without_rcontention(b: &mut test::bench::Bencher) {
 fn shared_wguard_without_rcontention(b: &mut test::bench::Bencher) {
     let table = Arc::new(shared::AsLock::new(1));
     b.iter(|| {
-        let mut wg = table.write();
+        let mut wg = table.write().unwrap();
         wg.add_one();
     });
 }
@@ -166,7 +166,7 @@ fn shared_wguard_rw_contention(b: &mut test::bench::Bencher) {
             let table = Arc::clone(&table);
             std::thread::spawn(move || {
                 // Continually grab read guards.
-                while *table.read() != 0 {
+                while *table.read().unwrap() != 0 {
                     // Hold the read guards to increase the chance of read 'contention'.
                     std::thread::sleep(std::time::Duration::from_micros(10));
                 }
@@ -177,13 +177,13 @@ fn shared_wguard_rw_contention(b: &mut test::bench::Bencher) {
     let _writer_handle = {
         let table = Arc::clone(&table);
         std::thread::spawn(move || loop {
-            let mut wg = table.write();
+            let mut wg = table.write().unwrap();
             wg.add_one();
         })
     };
 
     b.iter(|| {
-        let mut wg = table.write();
+        let mut wg = table.write().unwrap();
         wg.add_one();
     });
 }
@@ -234,7 +234,7 @@ fn shared_rguard_no_contention(b: &mut test::bench::Bencher) {
     let table = Arc::new(shared::AsLock::new(1));
 
     b.iter(|| {
-        let rg = table.read();
+        let rg = table.read().unwrap();
         assert_eq!(*rg, 1);
     });
 }
@@ -277,7 +277,7 @@ fn shared_rguard_rw_contention(b: &mut test::bench::Bencher, num_readers: u32) {
             let aslock = Arc::clone(&aslock);
             std::thread::spawn(move || {
                 // Continually grab read guards.
-                while *aslock.read() != 0 {
+                while *aslock.read().unwrap() != 0 {
                     // Hold the read guards to increase the change of read 'contention'.
                     std::thread::sleep(std::time::Duration::from_micros(100));
                 }
@@ -286,13 +286,13 @@ fn shared_rguard_rw_contention(b: &mut test::bench::Bencher, num_readers: u32) {
         .collect();
     let aslock2 = Arc::clone(&aslock);
     let _writer_handle = std::thread::spawn(move || loop {
-        let mut wg = aslock2.write();
+        let mut wg = aslock2.write().unwrap();
         std::thread::sleep(std::time::Duration::from_micros(100));
         wg.add_one();
     });
 
     b.iter(|| {
-        let rg = aslock.read();
+        let rg = aslock.read().unwrap();
         assert_gt!(*rg, 0);
     });
 }

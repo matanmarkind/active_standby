@@ -83,15 +83,12 @@ macro_rules! generate_lockless_aslockhandle {
             pub fn write(&self) -> $crate::primitives::LockResult<WriteGuard<'_, $($($Inner),*)?>> {
                 // Type conversion from generic WriteGuard to the generated WriteGuard.
                 match self.inner.write() {
-                    Ok(g) =>
-                        Ok(WriteGuard {
-                            guard: g
-                        }),
-                    Err(g) => {
-                        Err(std::sync::PoisonError::new(
-                            WriteGuard { guard: g.into_inner() }
-                        ))
-                    }
+                    Ok(g) => Ok(WriteGuard {
+                        guard: g
+                    }),
+                    Err(g) => Err(std::sync::PoisonError::new(
+                        WriteGuard { guard: g.into_inner() }
+                    ))
                 }
             }
         }
@@ -204,9 +201,14 @@ macro_rules! generate_shared_aslock {
                 }
             }
 
-            pub fn write(&self) -> WriteGuard<'_, $($($Inner),*)?> {
-                WriteGuard {
-                    guard: self.inner.write()
+            pub fn write(&self) -> $crate::primitives::LockResult<WriteGuard<'_, $($($Inner),*)?>> {
+                match self.inner.write() {
+                    Ok(guard) => Ok(WriteGuard {
+                        guard
+                    }),
+                    Err(g) => Err(std::sync::PoisonError::new(
+                        WriteGuard { guard: g.into_inner() }
+                    ))
                 }
             }
         }
@@ -217,7 +219,7 @@ macro_rules! generate_shared_aslock {
         {
             pub fn new(t: $Table $(< $($Inner),* >)?) -> AsLock$(<$($Inner),*>)? {
                 AsLock {
-                    inner: AsLockAlias::from_identical(t.clone(), t)
+                    inner: AsLockAlias::new(t)
                 }
             }
         }
@@ -228,7 +230,7 @@ macro_rules! generate_shared_aslock {
         {
             fn default() -> AsLock$(<$($Inner),*>)? {
                 AsLock {
-                    inner: AsLockAlias::from_identical($Table::default(), $Table::default())
+                    inner: AsLockAlias::default()
                 }
             }
         }
