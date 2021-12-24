@@ -41,6 +41,23 @@ macro_rules! generate_lockless_aslockhandle {
             guard: $crate::primitives::lockless::WriteGuard<'w, $Table $(< $($Inner),* >)?>,
         }
 
+        // Allow the user to `update_tables` directly in case there is an interface missing.
+        impl<'w, $($($Inner),*)?> WriteGuard<'w, $($($Inner),*)?> {
+            pub fn update_tables<'a, R>(
+                &'a mut self,
+                update: impl $crate::primitives::UpdateTables<'a, $Table$(< $($Inner),* >)?, R> + 'static + Sized + Send,
+            ) -> R {
+                self.guard.update_tables(update)
+            }
+
+            pub fn update_tables_closure<R>(
+                &mut self,
+                update: impl Fn(&mut $Table$(< $($Inner),* >)?) -> R + 'static + Sized + Send,
+            ) -> R {
+                self.guard.update_tables_closure(update)
+            }
+        }
+
         // Deref should pass through the wrapper WriteGuard and look like the
         // user holds a primitive WriteGuard to the underlying table.
         impl<'w, $($($Inner),*)?> std::ops::Deref for WriteGuard<'w, $($($Inner),*)?> {
@@ -158,6 +175,23 @@ macro_rules! generate_shared_aslock {
         // blocks outside of the active_standby crate.
         pub struct WriteGuard<'w, $($($Inner),*)?> {
             guard: $crate::primitives::shared::WriteGuard<'w, $Table $(< $($Inner),* >)?>,
+        }
+
+        // Allow the user to `update_tables` directly in case there is an interface missing.
+        impl<'w, $($($Inner),*)?> WriteGuard<'w, $($($Inner),*)?> {
+            pub fn update_tables<'a, R>(
+                &'a mut self,
+                update: impl $crate::primitives::UpdateTables<'a, $Table$(< $($Inner),* >)?, R> + 'static + Sized + Send,
+            ) -> R {
+                self.guard.update_tables(update)
+            }
+
+            pub fn update_tables_closure<R>(
+                &mut self,
+                update: impl Fn(&mut $Table$(< $($Inner),* >)?) -> R + 'static + Sized + Send,
+            ) -> R {
+                self.guard.update_tables_closure(update)
+            }
         }
 
         // Deref should pass through the wrapper WriteGuard and look like the

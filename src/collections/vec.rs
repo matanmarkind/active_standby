@@ -479,6 +479,21 @@ mod lockless_test {
             "ReadGuard { active_table: [12] }",
         );
     }
+
+    #[test]
+    fn update_tables_raw() {
+        let table = super::lockless::AsLockHandle::<i32>::default();
+        {
+            table.write().unwrap().update_tables(Push { value: 1 });
+            table.write().unwrap().update_tables(Push { value: 2 });
+            table.write().unwrap().update_tables_closure(|v| {
+                for x in v.iter_mut() {
+                    *x += 1;
+                }
+            });
+        }
+        assert_eq!(*table.read().unwrap(), vec![2, 3]);
+    }
 }
 
 #[cfg(test)]
@@ -758,5 +773,20 @@ mod shared_test {
             format!("{:?}", table.read().unwrap()),
             "ShardedLockReadGuard { lock: ShardedLock { data: [12] } }",
         );
+    }
+
+    #[test]
+    fn update_tables_raw() {
+        let table = Arc::new(shared::AsLock::<i32>::default());
+        {
+            table.write().unwrap().update_tables(Push { value: 1 });
+            table.write().unwrap().update_tables(Push { value: 2 });
+            table.write().unwrap().update_tables_closure(|v| {
+                for x in v.iter_mut() {
+                    *x += 1;
+                }
+            });
+        }
+        assert_eq!(*table.read().unwrap(), vec![2, 3]);
     }
 }
