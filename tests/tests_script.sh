@@ -39,19 +39,22 @@ $ RUSTFLAGS="--cfg loom" cargo +nightly test --test loom --release
 '
 RUSTFLAGS="--cfg loom" cargo +nightly test --test loom --release
 
+# tsan requires all libraries to be built with instrumentation, including std,
+# not just the local crate.
 echo '
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-$ RUST_BACKTRACE=full RUSTFLAGS="-Zsanitizer=thread -g" cargo +nightly test --lib --release -Z build-std --target x86_64-unknown-linux-gnu # tsan
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-'
-RUST_BACKTRACE=full RUSTFLAGS="-Zsanitizer=thread -g" cargo +nightly test --lib --release -Z build-std --target x86_64-unknown-linux-gnu # tsan
-
-echo '
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-$ RUST_BACKTRACE=full RUSTFLAGS="-Zsanitizer=thread -g" cargo +nightly bench -Z build-std --target x86_64-unknown-linux-gnu # tsan
+$ RUST_BACKTRACE=full RUSTFLAGS="-Zsanitizer=thread -g" RUSTDOCFLAGS=-Zsanitizer=thread cargo +nightly bench -Z build-std --target x86_64-unknown-linux-gnu # tsan
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 '
 RUST_BACKTRACE=full RUSTFLAGS="-Zsanitizer=thread -g" cargo +nightly bench -Z build-std --target x86_64-unknown-linux-gnu # tsan
+
+# tsan doesn't seem to play nice with doc tests, hence the --lib flag.
+echo '
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+$ RUST_BACKTRACE=full RUSTFLAGS="-Zsanitizer=thread -g" RUSTDOCFLAGS=-Zsanitizer=thread cargo +nightly test --lib --release -Z build-std --target x86_64-unknown-linux-gnu # tsan
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+'
+RUST_BACKTRACE=full RUSTFLAGS="-Zsanitizer=thread -g" cargo +nightly test --lib --release -Z build-std --target x86_64-unknown-linux-gnu # tsan
 
 # Miri specifies it should be cleaned beforehand.
 echo '

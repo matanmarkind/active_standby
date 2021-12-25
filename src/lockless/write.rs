@@ -334,7 +334,7 @@ mod test {
             &mut table[0]
         }
         fn apply_second(self, table: &mut Vec<T>) {
-            &mut table[0];
+            let _ = &mut table[0];
         }
     }
 

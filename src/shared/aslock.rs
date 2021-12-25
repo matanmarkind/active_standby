@@ -30,6 +30,8 @@ pub struct WriteGuard<'w, T> {
     ops_to_replay: MutexGuard<'w, Vec<Box<dyn FnOnce(&mut T) + Send>>>,
 }
 
+pub type ReadGuard<'r, T> = RwLockReadGuard<'r, T>;
+
 impl<T> AsLock<T> {
     /// Create a AsLock object for handling active_standby tables.
     /// - t1 & t2 are the two tables which will become the active and standby
@@ -41,7 +43,7 @@ impl<T> AsLock<T> {
         }
     }
 
-    pub fn read(&self) -> LockResult<RwLockReadGuard<'_, T>> {
+    pub fn read(&self) -> LockResult<ReadGuard<'_, T>> {
         self.table.read()
     }
 
@@ -206,7 +208,7 @@ mod test {
             &mut table[0]
         }
         fn apply_second(self, table: &mut Vec<T>) {
-            &mut table[0];
+            let _ = &mut table[0];
         }
     }
 

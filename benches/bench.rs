@@ -1,18 +1,13 @@
 #![feature(test)]
 
-/// Benchmarks for the table. Run via:
-///
-///     $ cargo +nightly bench
+/// Benchmarks for the table. (example invocations in tests/tests_script.sh)
 ///
 /// In practice you may want to run each one separately because running them all
-/// at once seems to overtax my computer and slow down some of them (due to CPU
+/// at once seems to overtax the computer and slow down some of them (due to CPU
 /// heating?).
 ///
-/// Useful to also run this with tsan:
-///
-///     $ RUST_BACKTRACE=full RUSTFLAGS="-Zsanitizer=thread -g" cargo +nightly bench -Z build-std --target x86_64-unknown-linux-gnu
-///
-/// In order to do that you need the rust src code:
+/// Useful to also run this with tsan. In order to do that you need the rust src
+/// code:
 ///
 ///     $ rustup component add --toolchain nightly rust-src
 ///
