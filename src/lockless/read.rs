@@ -3,15 +3,22 @@ use crate::types::*;
 use slab::Slab;
 use std::fmt;
 
-/// List of epoch counters for each reader. This is the shared state, between
-/// Reader and Writer, used to synchronize when it is safe for the Writer to
-/// mutate the standby table.
+/// List of epoch counters for each reader.
+///
+/// This is the shared state, between Reader and Writer, used to synchronize
+/// when it is safe for the Writer to mutate the standby table.
+///
+/// {reader_key : epoch}
 pub type ReaderEpochs = Arc<Mutex<Slab<Arc<AtomicUsize>>>>;
 
-/// Class used to obtain read guards to the underlying table. Obtaining a
-/// ReadGuard should never suffer contention since it simple dereferences a
-/// pointer to the active table, relying on the writer to manage
-/// synchronization.
+/// Class used to obtain read guards to the underlying table.
+///
+/// Obtaining a ReadGuard should never suffer contention since it simply
+/// dereferences a pointer to the active table. The Writer is responsible for
+/// managing contention and guaranteeing:
+/// 1. No WriteGuard ever points to the active table.
+/// 2. After swapping active & standby, the Writer is responsible for awaiting
+///    all existing ReadGuards to the (new) standby table are dropped.
 pub struct Reader<T> {
     // Allows the Reader to generate new readers, and remove itself from the list on drop.
     readers: ReaderEpochs,
@@ -29,6 +36,7 @@ pub struct Reader<T> {
     _not_sync: std::cell::UnsafeCell<fn(&T)>,
 }
 
+/// Guard used for obtaining const access to the active table.
 pub struct ReadGuard<'r, T> {
     // Read by callers when dereferenceing the table.
     active_table: &'r T,
@@ -69,20 +77,19 @@ impl<T> Reader<T> {
     /// Obtain a read guard with which to inspect the active table.
     ///
     /// This is wait free since there is nothing to lock, and the Writer is
-    /// responsible for never mutating the table that a Reader would want to
-    /// read from.
+    /// responsible for never mutating the table that a ReadGuard points to.
     pub fn read(&self) -> ReadGuard<'_, T> {
         // Theoretically we could add a counter for number of entries and only
         // increment epoch on transitions from 0 <-> 1 guards. This would make
         // Reader re-entrant.
         let old_epoch = self.my_epoch.load(Ordering::Acquire);
         assert_eq!(old_epoch % 2, 0, "Reader is not reentrant");
-        self.my_epoch.store(old_epoch + 1, Ordering::Release);
 
         // The reader must update the epoch before taking the table. This
         // effectively locks the active_table, making it safe for the reader to
         // proceed knowing that the Writer will not be able to access this table
         // until epoch is incremented again.
+        self.my_epoch.store(old_epoch + 1, Ordering::Release);
         fence(Ordering::SeqCst);
 
         ReadGuard {
@@ -109,7 +116,7 @@ impl<T: fmt::Debug> fmt::Debug for Reader<T> {
 
 impl<'r, T> Drop for ReadGuard<'r, T> {
     /// Update the epoch counter to notify the Writer that we are done using the
-    /// 'active_table' and so is available for use as the new standby table.
+    /// active table and so it is available for use as the new standby table.
     fn drop(&mut self) {
         let old_epoch = self.epoch.load(Ordering::Acquire);
         debug_assert_eq!(old_epoch % 2, 1);

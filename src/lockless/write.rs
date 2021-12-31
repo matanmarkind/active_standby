@@ -3,45 +3,37 @@ use crate::lockless::table::Table;
 use crate::types::*;
 use slab::Slab;
 
-/// InnerWriter is the entry point for using active_standy primitives, and for
-/// updating the underlying table. It is responsible for creating the tables,
-/// and is how to create the first reader. InnerWriter is responsible for handling
-/// the synchronization with Readers, making sure to update them to the new
-/// active table when swapped, and making sure not to mutate the standby table
-/// if there are any Readers remaining.
-///
-/// In order to interact with the underlying tables you must create a
-/// InnerWriteGuard. Only 1 InnerWriter can exist for a given table.
-///
-/// InnerWriter doesn't actually own the underlying data, so if InnerWriter is Dropped,
-/// this will not delete the tables. Instead they will only be dropped once all
-/// Readers and the InnerWriter are dropped.
-///
-/// For examples of using InnerWriter check out the tests in this file.
+/// InnerWriter is a simple struct which holds all of the pieces of info needed
+/// by the Writer, it should have almost no logic.
 struct InnerWriter<T> {
     // The underlying tables. This struct is responsible for returning the
-    // correct active/standby table, and also for swapping them when the
-    // TableInnerWriteGuard is dropped. This table does not handle any
-    // synchronization across InnerWriter/Readers, rather that is handled by the
-    // InnerWriter and Readers themselves.
+    // correct active/standby table, and also for swapping them. This table
+    // does not handle any synchronization across InnerWriter/Readers, rather
+    // that is handled by the InnerWriter and Readers themselves.
     table: Arc<Table<T>>,
 
-    /// Information about each of the readers. Used by the InnerWriter and Readers to
-    /// synchronize so that the InnerWriter never mutates a table that a ReadGuard is
-    /// pointing to.
+    // Information about each of the readers. Used by the Writer and Readers to
+    // synchronize for thread safety; so that a Writer never mutates a table
+    // that a ReadGuard is pointing to.
     readers: ReaderEpochs,
 
-    /// Log of operations to be performed on the second table. This gets played
-    /// on the standby table when creating a InnerWriteGuard, as opposed to when
-    /// dropping it, to minimize lock contention. This is in the hopes that by
-    /// waiting until the next time a InnerWriteGuard is created, we give the readers
-    /// time to switch to reading from the new active_table.
+    // Log of operations to be performed on the second table.
+    //
+    // During a WriteGuard's lifetime, it mutates the stadnby table, but leaves
+    // the active one constant for reads. These tables are then swapped when
+    // the WriteGuard is dropped. Therefore, the next time a WriteGuard is
+    // created, the standby table it points to will still need to have these
+    // updates applied to it to keep the tables sychronized.
     ops_to_replay: Vec<Box<dyn FnOnce(&mut T) + Send>>,
 
-    // Record the epoch of the readers after we swap the tables. This is used to
-    // tell the InnerWriter when it is safe to mutate the standby_table. InnerWriter only
-    // mutates this by removing entries when waiting for the standby table to be
-    // free. {reader_key : first_epoch_after_swap}.
+    // A record of readers and their epoch after the most recent call to
+    // table.swap_active_and_standby.
+    //
+    // Filled by the WriteGuard when it is dropped, and used by the Writer to
+    // block creation of a new WriteGuard until there are no ReadGuards left
+    // pointing to the standby table.
+    //
+    // {reader_key : first_epoch_after_swap}.
     blocking_readers: std::collections::HashMap<usize, usize>,
 }
 
@@ -80,7 +72,9 @@ impl<T> Writer<T> {
         }
     }
 
-    // Creates a new reader if the Mutex guarding the data is not poisoned.
+    /// Creates a new `Reader`.
+    ///
+    /// Returns None if the Mutex guarding the data is poisoned.
     pub fn new_reader(&self) -> Option<Reader<T>> {
         match self.inner.lock() {
             Ok(mg) => Some(Reader::new(&mg.readers, &mg.table)),
@@ -88,6 +82,13 @@ impl<T> Writer<T> {
         }
     }
 
+    /// Create a `WriteGuard` which is used to update the underlying tables.
+    ///
+    /// The function is responsible for waiting for the standby table to be be
+    /// free for updates & for replaying the old ops from the last WriteGuard on
+    /// it.
+    ///
+    /// Returns `PoisonError` if the Mutex guarding the data is poisoned.
     pub fn write(&self) -> LockResult<WriteGuard<'_, T>> {
         // Grab the mutex as the first thing.
         let mut mg = match self.inner.lock() {
@@ -100,7 +101,8 @@ impl<T> Writer<T> {
             }
         };
 
-        // Wait until the standby table is free for us to update.
+        // Wait until the standby table is free of ReadGuards so it is safe to
+        // update.
         Writer::await_standby_table_free(&mut mg);
         std::sync::atomic::compiler_fence(Ordering::SeqCst);
 
@@ -123,27 +125,25 @@ impl<T> Writer<T> {
         })
     }
 
-    // Hangs until the standby table has no readers pointing to it, meaning it
-    // is safe for updating.
+    /// Hangs until the standby table has no readers pointing to it, meaning it
+    /// is safe for updating.
     fn await_standby_table_free(inner: &mut InnerWriter<T>) {
         // Wait until no reader is making use of the standby table.
         while !inner.blocking_readers.is_empty() {
-            {
-                let readers = inner.readers.lock().unwrap();
-                inner
-                    .blocking_readers
-                    .retain(|key, first_epoch_after_swap| {
-                        let epoch = match readers.get(*key) {
-                            None => {
-                                // This Reader has been dropped.
-                                return false;
-                            }
-                            Some(epoch) => epoch.load(Ordering::Acquire),
-                        };
+            let readers = inner.readers.lock().unwrap();
+            inner
+                .blocking_readers
+                .retain(|key, first_epoch_after_swap| {
+                    let epoch = match readers.get(*key) {
+                        None => {
+                            // This Reader has been dropped.
+                            return false;
+                        }
+                        Some(epoch) => epoch.load(Ordering::Acquire),
+                    };
 
-                        epoch <= *first_epoch_after_swap && *first_epoch_after_swap % 2 != 0
-                    });
-            }
+                    epoch <= *first_epoch_after_swap && *first_epoch_after_swap % 2 != 0
+                });
 
             if !inner.blocking_readers.is_empty() {
                 // Instead of just busy looping we will (potentially) yield this
@@ -159,6 +159,8 @@ where
     T: std::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Implemented this way (as oppsed to automatic) to avoid cluttering the
+        // print statement with: "Writer : Mutex : InnerWriter: <info>".
         match self.inner.try_lock() {
             Ok(mg) => f
                 .debug_struct("Writer")
@@ -172,6 +174,10 @@ where
 }
 
 /// Guard used for updating the tables.
+///
+/// Only 1 WriteGuard can ever exist at a time for a given table. Write Guard is
+/// responsible for updating the standby table, storing the updates for replay
+/// on the other table, and swapping the active and standby tables on drop.
 pub struct WriteGuard<'w, T> {
     guard: MutexGuard<'w, InnerWriter<T>>,
 
@@ -184,25 +190,23 @@ impl<'w, T> WriteGuard<'w, T> {
     /// Takes an update which will change the state of the underlying data. This
     /// is done through the interface of UpdateTables.
     ///
-    /// The return value can be anything that owns it's own data. We don't allow
-    /// the return value to be a reference to the data as a way to encourage
-    /// keeping the tables in sync. Since returning a &mut would allow users to
-    /// cause mutations outside of the update they pass.
+    /// Users should never use the return value to directly mutate the tables,
+    /// since this will lead to them going out of sync.
     ///
     /// The update passed in must be valid for 'static because it will outlive
-    /// the InnerWriteGuard taking the update, so we can't make any limitations on
+    /// the WriteGuard taking the update, so we can't make any limitations on
     /// it.
     pub fn update_tables<'a, R>(
         &'a mut self,
         mut update: impl UpdateTables<'a, T, R> + 'static + Sized + Send,
     ) -> R {
         // Explicitly grab the standby_table as a field of table, instead of via
-        // a function call to `Table::standby_table_mut`. This is because we need
-        // the lifetime of the table passed in to be tied to the lifetime of the
-        // call to self.update_tables in order to allow return values that have
-        // lifetimes (eg Vec::drain). If we call to standby_table_mut, the
-        // lifetime of the table passed into `apply_first` is tied to the method
-        // call, not self.
+        // a function call to `Table::standby_table_mut`. This is because we
+        // need the lifetime of the table passed in to be tied to the lifetime
+        // of the call to self.update_tables in order to allow return values
+        // that have lifetimes (eg Vec::drain). If we call to standby_table_mut,
+        // the lifetime of the table passed into `apply_first` is tied to the
+        // returned reference (aka limited to this fn's scope), not self.
         //
         // See comments on `Table::standby_table_mut` for safety.
         let res = update
@@ -215,6 +219,11 @@ impl<'w, T> WriteGuard<'w, T> {
         res
     }
 
+    /// Like `update_tables` but allows the user to pass a closure for
+    /// convenience. Only allows return values that own their data.
+    ///
+    /// TODO: Consider allowing return values that have lifetimes, this should
+    /// likely be as safe as the explicit UpdateTables trait.
     pub fn update_tables_closure<R>(
         &mut self,
         update: impl Fn(&mut T) -> R + 'static + Sized + Send,
@@ -265,6 +274,8 @@ impl<'w, T> Drop for WriteGuard<'w, T> {
             // standby table.
             let first_epoch_after_swap = epoch.load(Ordering::Acquire);
             if first_epoch_after_swap % 2 != 0 {
+                // If the epoch is even, it means that there is no ReadGuard
+                // active.
                 iw.blocking_readers.insert(key, first_epoch_after_swap);
             }
         }
