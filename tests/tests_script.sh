@@ -2,7 +2,7 @@
 
 echo '
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-$ cargo clean
+$ sudo cargo clean
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 '
 cargo clean
@@ -27,10 +27,10 @@ RUST_BACKTRACE=full cargo test
 
 echo '
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-$ cargo +nightly bench
+$ cargo +nightly bench benchmarks
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 '
-cargo +nightly bench
+cargo +nightly bench benchmarks
 
 echo '
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -43,10 +43,10 @@ RUSTFLAGS="--cfg loom" cargo +nightly test --test loom --release
 # not just the local crate.
 echo '
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-$ RUST_BACKTRACE=full RUSTFLAGS="-Zsanitizer=thread -g" RUSTDOCFLAGS=-Zsanitizer=thread cargo +nightly bench -Z build-std --target x86_64-unknown-linux-gnu # tsan
+$ RUST_BACKTRACE=full RUSTFLAGS="-Zsanitizer=thread -g" RUSTDOCFLAGS=-Zsanitizer=thread cargo +nightly bench benchmarks -Z build-std --target x86_64-unknown-linux-gnu # tsan
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 '
-RUST_BACKTRACE=full RUSTFLAGS="-Zsanitizer=thread -g" cargo +nightly bench -Z build-std --target x86_64-unknown-linux-gnu # tsan
+RUST_BACKTRACE=full RUSTFLAGS="-Zsanitizer=thread -g" cargo +nightly bench benchmarks -Z build-std --target x86_64-unknown-linux-gnu # tsan
 
 # tsan doesn't seem to play nice with doc tests, hence the --lib flag.
 echo '
