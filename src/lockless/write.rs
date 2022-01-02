@@ -175,10 +175,19 @@ where
 
 /// Guard used for updating the tables.
 ///
-/// Only 1 WriteGuard can ever exist at a time for a given table. Write Guard is
-/// responsible for updating the standby table, storing the updates for replay
-/// on the other table, and swapping the active and standby tables on drop.
+/// Only 1 `WriteGuard` can ever exist at a time for a given table. `WriteGuard`
+/// is responsible for updating the standby table, storing the updates for
+/// replay on the other table, and swapping the active and standby tables on
+/// drop.
 pub struct WriteGuard<'w, T> {
+    // Hold a MutexGuard to InnerWriter to guarantee no other WriteGuards exist
+    // to this table and gain mutable access to the Tables. Due to issues with
+    // self referential structs, we cannot also directly hold a &mut T to the
+    // standby table. This results in all calls to the standby table requiring
+    // an atomic load. Due to the nature of this struct being for mutations, and
+    // the fact no other thread will touch this AtomicPtr due to there being
+    // only 1 `WriteGuard`, it is expected that this shouldn't add too much
+    // overhead.
     guard: MutexGuard<'w, InnerWriter<T>>,
 
     // If the table is poisoned we put the tables into lockdown and stop

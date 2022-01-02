@@ -21,7 +21,6 @@ pub struct AsLockHandle<T> {
 }
 
 impl<T> AsLockHandle<T> {
-    // TODO: Add specialization of from_identical which compares t1 & t2.
     pub fn from_identical(t1: T, t2: T) -> AsLockHandle<T> {
         let writer = Writer::from_identical(t1, t2);
 
