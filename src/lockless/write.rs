@@ -42,10 +42,12 @@ where
     T: std::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // See comments on `Table::standby_table` for safety.
+        let standby_table = unsafe { self.table.standby_table() };
         f.debug_struct("InnerWriter")
             .field("num_readers", &self.readers.lock().unwrap().len())
             .field("ops_to_replay", &self.ops_to_replay.len())
-            .field("standby_table", &self.table.standby_table())
+            .field("standby_table", standby_table)
             .finish()
     }
 }
@@ -111,7 +113,8 @@ impl<T> Writer<T> {
         // the usage of table and ops_to_replay are conflicting mutable borrows
         // https://doc.rust-lang.org/nomicon/borrow-splitting.html
         let iw: &mut InnerWriter<T> = &mut mg;
-        let mut table = iw.table.standby_table_mut();
+        // See comments on `Table::standby_table_mut` for safety.
+        let mut table = unsafe { iw.table.standby_table_mut() };
 
         // Replay all ops on the standby table.
         for op in iw.ops_to_replay.drain(..) {
@@ -162,12 +165,15 @@ where
         // Implemented this way (as oppsed to automatic) to avoid cluttering the
         // print statement with: "Writer : Mutex : InnerWriter: <info>".
         match self.inner.try_lock() {
-            Ok(mg) => f
-                .debug_struct("Writer")
-                .field("num_readers", &mg.readers.lock().unwrap().len())
-                .field("ops_to_replay", &mg.ops_to_replay.len())
-                .field("standby_table", &mg.table.standby_table())
-                .finish(),
+            Ok(mg) => {
+                // See comments on `Table::standby_table` for safety.
+                let standby_table = unsafe { mg.table.standby_table() };
+                f.debug_struct("Writer")
+                    .field("num_readers", &mg.readers.lock().unwrap().len())
+                    .field("ops_to_replay", &mg.ops_to_replay.len())
+                    .field("standby_table", standby_table)
+                    .finish()
+            }
             Err(_) => self.inner.fmt(f),
         }
     }
@@ -237,7 +243,8 @@ impl<'w, T> WriteGuard<'w, T> {
         &mut self,
         update: impl Fn(&mut T) -> R + 'static + Sized + Send,
     ) -> R {
-        let res = update(self.guard.table.standby_table_mut());
+        // See comments on `Table::standby_table_mut` for safety.
+        let res = update(unsafe { self.guard.table.standby_table_mut() });
 
         self.guard.ops_to_replay.push(Box::new(move |table| {
             update(table);
@@ -294,7 +301,8 @@ impl<'w, T> Drop for WriteGuard<'w, T> {
 impl<'w, T> std::ops::Deref for WriteGuard<'w, T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
-        self.guard.table.standby_table()
+        // See comments on `Table::standby_table` for safety.
+        unsafe { self.guard.table.standby_table() }
     }
 }
 
@@ -303,11 +311,13 @@ where
     T: std::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // See comments on `Table::standby_table` for safety.
+        let standby_table = unsafe { self.guard.table.standby_table() };
         f.debug_struct("WriteGuard")
             .field("swap_active_and_standby", &self.swap_active_and_standby)
             .field("num_readers", &self.guard.readers.lock().unwrap().len())
             .field("ops_to_replay", &self.guard.ops_to_replay.len())
-            .field("standby_table", &self.guard.table.standby_table())
+            .field("standby_table", standby_table)
             .finish()
     }
 }

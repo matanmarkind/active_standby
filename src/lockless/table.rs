@@ -41,37 +41,37 @@ impl<T> Table<T> {
     }
 
     // This is the only function that Readers should ever call to.
-    pub fn active_table(&self) -> &T {
-        // Memory safety (valid pointer) is guaranteed by the class. See class
-        // level comment.
-        //
-        // Thread safety isn't guaranteed by the compiler, instead our access
-        // patterns (Reader & Writer) must enforce that this table is never
-        // updated by the Writer so long as this read exists.
-        unsafe { &*self.active_table.load(Ordering::SeqCst) }
+    //
+    // Memory safety (valid pointer) is guaranteed by the class. See class level
+    // comment.
+    //
+    // Thread safety isn't guaranteed by the compiler, instead our access
+    // patterns (Reader & Writer) must enforce that this table is never updated
+    // by the Writer so long as this read exists.
+    pub unsafe fn active_table(&self) -> &T {
+        &*self.active_table.load(Ordering::SeqCst)
     }
 
-    // Read access of the standby_table. Only to be used by the Writer.
-    pub fn standby_table(&self) -> &T {
-        // Memory safety (valid pointer) is guaranteed by the class. See class
-        // level comment.
-        //
-        // This is thread safe as long as the user guarantees that:
-        // 1. The standby table is only accessed by the Writer.
-        // 2. Only 1 Writer will attempt to interact with the table at a time.
-        unsafe { &*self.standby_table.load(Ordering::SeqCst) }
+    // Memory safety (valid pointer) is guaranteed by the class. See class
+    // level comment.
+    //
+    // This is thread safe as long as the user guarantees that:
+    // 1. The standby table is only accessed by the Writer.
+    // 2. Only 1 Writer will attempt to interact with the table at a time.
+    pub unsafe fn standby_table(&self) -> &T {
+        &*self.standby_table.load(Ordering::SeqCst)
     }
 
-    pub fn standby_table_mut(&self) -> &mut T {
-        // Memory safety (valid pointer) is guaranteed by the class. See class
-        // level comment.
-        //
-        // This is thread safe as long as the user guarantees that:
-        // 1. The standby table is only accessed by the Writer.
-        // 2. Only 1 Writer will attempt to interact with the table at a time.
-        // 3. Writers wait for all Readers to switch off this table after calling
-        //    to `swap_active_and_standby`.
-        unsafe { &mut *self.standby_table.load(Ordering::SeqCst) }
+    // Memory safety (valid pointer) is guaranteed by the class. See class
+    // level comment.
+    //
+    // This is thread safe as long as the user guarantees that:
+    // 1. The standby table is only accessed by the Writer.
+    // 2. Only 1 Writer will attempt to interact with the table at a time.
+    // 3. Writers wait for all Readers to switch off this table after calling
+    //    to `swap_active_and_standby`.
+    pub unsafe fn standby_table_mut(&self) -> &mut T {
+        &mut *self.standby_table.load(Ordering::SeqCst)
     }
 
     /// Swap which underlying table `active_table` and `standby_table` point to.

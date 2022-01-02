@@ -92,8 +92,15 @@ impl<T> Reader<T> {
         self.my_epoch.store(old_epoch + 1, Ordering::Release);
         fence(Ordering::SeqCst);
 
+        // Memory safety (valid pointer) is guaranteed by table. See class level
+        // comment.
+        //
+        // Thread safety isn't guaranteed by the compiler, instead our access
+        // patterns (Reader & Writer) must enforce that this table is never
+        // updated by the Writer so long as this read exists.
+        let active_table = unsafe { self.table.active_table() };
         ReadGuard {
-            active_table: self.table.active_table(),
+            active_table,
             epoch: &self.my_epoch,
         }
     }
