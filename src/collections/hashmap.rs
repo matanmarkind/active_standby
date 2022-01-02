@@ -531,10 +531,13 @@ mod shared_test {
             wg.insert(12, -1);
         }
 
-        assert_eq!(format!("{:?}", table), "AsLock { num_ops_to_replay: 1 }",);
+        assert_eq!(
+            format!("{:?}", table),
+            "AsLock { num_ops_to_replay: 1, active_table: {12: -1} }",
+        );
         assert_eq!(
             format!("{:?}", table.write().unwrap()),
-            "WriteGuard { num_ops_to_replay: 0, standby_table: TableWriteGuard { standby_table: {12: -1} } }",
+            "WriteGuard { num_ops_to_replay: 0, standby_table: {12: -1} }",
         );
         assert_eq!(
             format!("{:?}", table.read().unwrap()),
