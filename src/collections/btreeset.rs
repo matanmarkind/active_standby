@@ -56,6 +56,9 @@ where
     }
 }
 
+/// Implementation of BTreeSet for use in the active_standby model.
+/// `lockless::AsLockHandle<T>`, should function similarly to
+/// `Arc<RwLock<BTreeSet<T>>>`.
 pub mod lockless {
     use super::*;
     crate::generate_lockless_aslockhandle!(BTreeSet<T>);
@@ -100,6 +103,8 @@ pub mod lockless {
     }
 }
 
+/// Implementation of BTreeSet for use in the active_standby model.
+/// `shared::AsLock<T>`, should function similarly to `RwLock<BTreeSet<T>>`.
 pub mod shared {
     use super::*;
     crate::generate_shared_aslock!(BTreeSet<T>);

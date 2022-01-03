@@ -2,6 +2,7 @@
 // compilation.
 pub type LockResult<Guard> = Result<Guard, std::sync::PoisonError<Guard>>;
 
+// Conditional compilation for using loom.
 #[cfg(loom)]
 pub(crate) use loom::hint::spin_loop;
 #[cfg(loom)]
@@ -41,9 +42,9 @@ pub type RwLockReadGuard<'r, T> = crossbeam::sync::ShardedLockReadGuard<'r, T>;
 #[cfg(not(loom))]
 pub type RwLockWriteGuard<'w, T> = crossbeam::sync::ShardedLockWriteGuard<'w, T>;
 
-/// Operations that update the data held internally. Users mutate the tables by
+/// Operations that update underlying data. Users mutate the tables by
 /// implementing this trait for each function to be performed on the tables. For
-/// examples check the implementations for the collections.
+/// examples check the README (or implementation of collections).
 ///
 /// Users must be careful to guarantee that apply_first and apply_second cause
 /// the tables to end up in the same state. They also must be certain not to use
@@ -53,16 +54,16 @@ pub type RwLockWriteGuard<'w, T> = crossbeam::sync::ShardedLockWriteGuard<'w, T>
 /// It is *highly* discouraged to create updates which return mutable references
 /// to the table's internals. E.g:
 ///
-///```
+///```rust
 /// # use active_standby::primitives::UpdateTables;
 /// struct MutableRef {}
 ///
 /// impl<'a, T> UpdateTables<'a, Vec<T>, &'a mut T> for MutableRef {
 ///    fn apply_first(&mut self, table: &'a mut Vec<T>) -> &'a mut T {
-///        &mut table[0]
+///         &mut table[0]
 ///    }
 ///    fn apply_second(self, table: &mut Vec<T>) {
-///        &mut table[0];
+///         &mut table[0];
 ///    }
 /// }
 /// ```
@@ -70,7 +71,7 @@ pub type RwLockWriteGuard<'w, T> = crossbeam::sync::ShardedLockWriteGuard<'w, T>
 /// Even without the explicit lifetime, which allows for mutable references,
 /// this issue is still possible.
 ///
-/// ```
+/// ```rust
 /// use std::sync::Arc;
 /// use std::cell::RefCell;
 ///
@@ -95,8 +96,8 @@ pub type RwLockWriteGuard<'w, T> = crossbeam::sync::ShardedLockWriteGuard<'w, T>
 ///
 /// If the table holds large elements, a user may want to save memory by having
 /// Table<Arc\<T>>. This can be done safely so long as UpdateTables never
-/// mutates the value pointed to (T). UpdateTables may instead only update the Table
-/// by inserting and removing elements.
+/// mutates the value pointed to (T). UpdateTables may instead only update the
+/// Table by inserting and removing elements.
 pub trait UpdateTables<'a, T, R> {
     fn apply_first(&mut self, table: &'a mut T) -> R;
 

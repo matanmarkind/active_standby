@@ -5,25 +5,28 @@
 // - https://doc.rust-lang.org/stable/rustdoc/documentation-tests.html#documenting-macros
 // - doc tests mock another crate utilizing the macro.
 
-// These macro automatically generates an easy to use interface for interacting
-// with an ActiveStandby data structure. Note that this is done for each
-// underlying table, as opposed to an RwLock which is generic over all
-// underlying types. This is because there are really 2 underlying tables which
-// need to be kept in sync. The client adds mutability to the table is by
-// creating an impl for the generated WriteGuard.
-//
-// This macro is valid for templated types, it doesn't have to be concrete. The
-// macro can't handle paths, so you can't pass 'std::collections::HashMap'. In
-// such a case just put 'use std::collections::HashMap' right before the macro
-// invocation.
-//
-// For a simple example check out crate level docs or bench.rs. For larger
-// examples, check out active_standby::collections.
+/// These macros automatically generates an easy to use interface for
+/// interacting with an ActiveStandby data structure. Note that this is done for
+/// each underlying table, as opposed to an RwLock which is generic over all
+/// underlying types.
+///
+/// Using the plain AsLockHandle/AsLock requires users to call to the
+/// `update_tables` interface as oppossed to an RwLock which lets users directly
+/// mutate their desired table. Using these macros allows client libraries to
+/// create interfaces (per container), which wrap the calls to `update_tables`
+/// and allows for a UI much like a plain RwLock.
+///
+/// This macro is valid for templated types, it doesn't have to be concrete. The
+/// macro can't handle paths, so you can't pass 'std::collections::HashMap'. In
+/// such a case just put the `use` statement right before the macro invocation.
+///
+/// For a simple example check out crate level docs or bench.rs. For larger
+/// examples, check out collections.
+///
+/// TODO: Is there some way to get all of the mutable methods of Table and
+/// automatically generate `UpdateTables` wrappers for them?
 
-/// Generates an AsLockHandle for the type passed in. This follows the lockless
-/// model, meaning that reads don't perform synchronization, but that the
-/// resultant AsLockHandle cannot be shared across threads; though it can be
-/// cloned and sent across threads.
+/// Generates a lockless::AsLockHandle for the type passed in.
 #[macro_export]
 macro_rules! generate_lockless_aslockhandle {
     ( $Table:ident
@@ -35,8 +38,8 @@ macro_rules! generate_lockless_aslockhandle {
     ) => {
         // WriteGuard must be a new struct, because clients will implement the
         // update functions for the generated WriteGuard type. If this was just
-        // a convenient type alias, clients would be blocked from creating impl
-        // blocks outside of the active_standby crate.
+        // a type alias, clients would be blocked from creating impl blocks
+        // outside of the active_standby crate.
         pub struct WriteGuard<'w, $($($Inner),*)?> {
             guard: $crate::primitives::lockless::WriteGuard<'w, $Table $(< $($Inner),* >)?>,
         }
@@ -81,7 +84,7 @@ macro_rules! generate_lockless_aslockhandle {
             $crate::primitives::lockless::AsLockHandle<$Table $(< $($Inner),* >)? >;
 
         // AsLockHandle needs to be a new struct, because we need to "override"
-        // the inner call to '_write' so that it will produce the new WriteGuard
+        // the inner call to 'write' so that it will produce the new WriteGuard
         // type that is defined here.
         pub struct AsLockHandle$(< $($Inner),* >)? {
             inner: AsLockHandleAlias$(< $($Inner),* >)?,
@@ -157,9 +160,7 @@ macro_rules! generate_lockless_aslockhandle {
     }
 }
 
-/// Generates an AsLock for the type passed in. This follows the shared model,
-/// meaning that you can share this across threads by wrapping it in an Arc like
-/// an RwLock.
+/// Generates a shared::AsLock for the type passed in.
 #[macro_export]
 macro_rules! generate_shared_aslock {
     ( $Table:ident
@@ -171,8 +172,8 @@ macro_rules! generate_shared_aslock {
     ) => {
         // WriteGuard must be a new struct, because clients will implement the
         // update functions for the generated WriteGuard type. If this was just
-        // a convenient type alias, clients would be blocked from creating impl
-        // blocks outside of the active_standby crate.
+        // a type alias, clients would be blocked from creating impl blocks
+        // outside of the active_standby crate.
         pub struct WriteGuard<'w, $($($Inner),*)?> {
             guard: $crate::primitives::shared::WriteGuard<'w, $Table $(< $($Inner),* >)?>,
         }

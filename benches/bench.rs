@@ -241,8 +241,13 @@ mod benchmarks {
         });
     }
 
-    // The main test, since our core guarantee is that reads are always wait free
-    // regardless of read and write usage.
+    // The following section is the main thing we are interested in; how does
+    // retreiving a read guard to the tables scale with lots of other readers
+    // and an active writer. The tests compare 3 cases: lockless v. shared v.
+    // plain RwLock.
+    //
+    // Tests for all cases are grouped together.
+    // - num read threads: {1, 10, 20, 30}
     fn lockless_rguard_rw_contention(b: &mut test::bench::Bencher, num_readers: u32) {
         let table = lockless::AsLockHandle::from_identical(1, 1);
 
@@ -331,14 +336,6 @@ mod benchmarks {
             assert_gt!(*rg, 0);
         });
     }
-
-    // The following section is the main thing we are interested in; how does
-    // retreiving a read guard to the tables scale with lots of other readers and an
-    // active writer. The tests are broken down as follows:
-    // - lockless v. shared
-    // - writer spinning (constantly write locking and releasing) v. writer grabbing
-    //   and holding a write guard for 100us.
-    // - num read threads
 
     #[bench]
     fn lockless_rguard_rw_contention_1(b: &mut test::bench::Bencher) {

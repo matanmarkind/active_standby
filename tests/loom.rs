@@ -1,5 +1,5 @@
 // If there are errors you need additional flags to use checkpointing (see
-// docs):
+// docs). Example of what I did:
 //
 //      $ RUST_BACKTRACE=full RUSTFLAGS='--cfg loom' cargo +nightly test --test="loom" --features="loom/checkpoint" -- --nocapture
 
@@ -31,6 +31,7 @@ mod loom_tests {
         }
     }
 
+    // Wait as long as `condition` is still true.
     pub fn wait_while<'a, T, F>(
         cv: &Condvar,
         mut guard: MutexGuard<'a, T>,
@@ -129,15 +130,15 @@ mod loom_tests {
 
                     let mut step_num;
                     {
-                        let mut wg = Some(table.write().unwrap());
-                        wg.as_mut().unwrap().update_tables(AddOne {});
+                        let mut wg = table.write().unwrap();
+                        wg.update_tables(AddOne {});
 
                         *cond.lock().unwrap() += 1;
                         cv.notify_all();
                         step_num = wait_while(&cv, cond.lock().unwrap(), |step| *step < 2).unwrap();
 
-                        // Write while holding the ReadGuard.
-                        wg.as_mut().unwrap().update_tables(AddOne {});
+                        // Write while the other thread holds the ReadGuard.
+                        wg.update_tables(AddOne {});
 
                         // Make sure to drop wg before notifying the reader.
                     }
@@ -154,7 +155,7 @@ mod loom_tests {
                     let mut step_num =
                         wait_while(&cv, cond.lock().unwrap(), |step| *step < 1).unwrap();
 
-                    // Grab reader and while holding the WriteGuard.
+                    // Grab reader while holding the WriteGuard.
                     rg = table.read().unwrap();
                     assert_eq!(*rg, 0);
 

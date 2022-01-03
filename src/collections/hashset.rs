@@ -77,6 +77,9 @@ impl<'a, T> UpdateTables<'a, HashSet<T>, std::collections::hash_set::Drain<'a, T
     }
 }
 
+/// Implementation of HashSet for use in the active_standby model.
+/// `lockless::AsLockHandle<T>`, should function similarly to
+/// `Arc<RwLock<HashSet<T>>>`.
 pub mod lockless {
     use super::*;
     crate::generate_lockless_aslockhandle!(HashSet<T>);
@@ -141,6 +144,8 @@ pub mod lockless {
     }
 }
 
+/// Implementation of HashSet for use in the active_standby model.
+/// `shared::AsLock<T>`, should function similarly to `RwLock<HashSet<T>>`.
 pub mod shared {
     use super::*;
     crate::generate_shared_aslock!(HashSet<T>);

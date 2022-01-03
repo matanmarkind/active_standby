@@ -1,6 +1,3 @@
-/// Implementation of Vec for use in the active_standby model.
-/// vec::lockless::AsLockHandle<T>, should function similarly to
-/// Arc<RwLock<Vec<T>>>.
 use crate::primitives::UpdateTables;
 use std::ops::RangeBounds;
 
@@ -81,6 +78,9 @@ where
     }
 }
 
+/// Implementation of Vec for use in the active_standby model.
+/// `lockless::AsLockHandle<T>`, should function similarly to
+/// `Arc<RwLock<Vec<T>>>`.
 pub mod lockless {
     use super::*;
     crate::generate_lockless_aslockhandle!(Vec<T>);
@@ -154,6 +154,8 @@ pub mod lockless {
     }
 }
 
+/// Implementation of Vec for use in the active_standby model.
+/// `shared::AsLock<T>`, should function similarly to `RwLock<Vec<T>>`.
 pub mod shared {
     use super::*;
     crate::generate_shared_aslock!(Vec<T>);

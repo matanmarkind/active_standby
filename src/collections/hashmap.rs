@@ -62,6 +62,9 @@ where
     }
 }
 
+/// Implementation of HashMap for use in the active_standby model.
+/// `lockless::AsLockHandle<K, V>`, should function similarly to
+/// `Arc<RwLock<HashMap<K, V>>>`.
 pub mod lockless {
     use super::*;
     crate::generate_lockless_aslockhandle!(HashMap<K, V>);
@@ -123,6 +126,9 @@ pub mod lockless {
     }
 }
 
+/// Implementation of HashMap for use in the active_standby model.
+/// `shared::AsLock<K, V>`, should function similarly to `RwLock<HashMap<K,
+/// V>>`.
 pub mod shared {
     use super::*;
     crate::generate_shared_aslock!(HashMap<K, V>);

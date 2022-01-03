@@ -3,7 +3,7 @@ A library for high concurrency reads.
 This library is named after the 2 (identical) tables that are held internally:
 - Active - this is the table that all Readers view. This table will never be
   write locked, so readers never face contention.
-- Standby - this is the table the the Writer mutates. A writer should face
+- Standby - this is the table that the Writer mutates. A writer should face
   minimal contention retrieving this table since Readers move to the Active
   table whenever calling `.read()`, so the only contention is long lived
   ReadGuards.
@@ -20,36 +20,35 @@ The cost of minimizing contention is:
 The usage is meant to be similar to a RwLock. Some of the inspiration came from
 the [left_right](https://crates.io/crates/left-right) crate, so feel free to
 check that out. The main differences focus on trying to simplify the client
-(creating data structures) and user (using data structures) experiences;
-primarily trying to mimic the API/usage of an RwLock. Because there are 2 tables
-which need to be updated, the user does not simply grab a writer and mutate the
-table directly. Rather, users provider update functions (UpdateTables trait) and
-the crate handles replaying these updates on both tables. There are 2 ways to
-interact with active_standby data structure:
-1. Raw usage of AsLock<T>. This provides the `update_tables` interface to a
-   user, which takes a function (or object which implements `UpdateTables`) to
-   update both of the tables.
+(creating data structures) and user (using data structures) experiences. Because
+there are 2 tables which need to be updated, the user does not simply grab a
+writer and mutate the table directly. Rather, users provider update functions
+(`UpdateTables` trait) and the crate handles replaying these updates on both
+tables. There are 2 ways to interact with active_standby data structure:
+1. Raw usage of `AsLock<T>`. This provides the `update_tables` interface to a
+   user, which takes an update function (or object implementing  `UpdateTables`)
+   to update both of the tables.
 2. Generating a client which will wrap the `update_tables` interface. This
-   provides the user with an interface which imitates a regular RwLockWriteGuard
-   (see the `collections` module).
+   provides the user with an interface which imitates a regular
+   `RwLockWriteGuard` (see the `collections` module).
 
 There are 2 flavors of this algorithm that we offer:
 1. Lockless - this variant trades off increased performance against changing the
-   API to be less like an RwLock. This avoids the cost of performing
+   API to be less like a `RwLock`. This avoids the cost of performing
    synchronization on reads, but this requires that each thread/task that is
    going to access the tables register in advance. Therefore this centers around
-   the AsLockHandle, which is conceptually similar to Arc\<RwLock> (meaning a
-   separate AsLockHandle per thread/task).
-2. Shared - this centers around using an AsLock, which is meant to feel like a
-   RwLock. These structs can be shared between threads by cloning & sending an
-   Arc\<AsLock> (like with RwLock). The main difference is that instead of using
-   AsLock\<Vec\<T>>, you would use vec::shared::AsLock\<T>. This is because both
-   tables must be updated, so users can't just dereference and mutate the
-   underlying table.
+   the `AsLockHandle`, which is conceptually similar to `Arc<RwLock>` (meaning a
+   separate `AsLockHandle` per thread/task).
+2. Shared - this centers around using an `AsLock`, which is meant to feel like a
+   `RwLock`. These structs can be shared between threads by cloning & sending an
+   `Arc<AsLock>` (like with `RwLock`). The main difference is that instead of
+   using `AsLock<Vec<T>>`, you would use (e.g.) `vec::shared::AsLock<T>`. This
+   is because both tables must be updated, meaning users can't just dereference
+   and mutate the underlying table, and so we provide a wrapper class.
 
 An example of where the shared variant can be preferable is a Tonic service.
 There you don't spawn a set of tasks/threads where you can pass each of them a
-lockless::AsLockHandle. You can use a shared::AsLock though.
+`lockless::AsLockHandle`. You can use a `shared::AsLock` though.
 
 We provide 2 modules:
 1. primitives - The components used to build data structures in the
@@ -58,13 +57,13 @@ We provide 2 modules:
    wrapper for their struct using one of the macros and then just implement the
    mutable API for the generated WriteGuard.
 2. collections - Shared and lockless active_standby structs for common
-   collections. Each table type has its own AsLock (shared) / AsLockHandle
-   (lockless), as opposed to RwLock where you simply pass in the table. This is
-   because users can't simply gain write access to the underlying table and then
-   mutate it. Instead mutations are done through UpdateTables so that both
+   collections. Each table type has its own `AsLock` (shared) / `AsLockHandle`
+   (lockless), as opposed to `RwLock` where you simply pass in the table. This
+   is because users can't simply gain write access to the underlying table and
+   then mutate it. Instead mutations are done through UpdateTables so that both
    tables will be updated.
 
-Example (see source code of collections for more):
+Example creating a wrapper class like in `collections`:
 ```rust
 use std::thread::sleep;
 use std::time::Duration;
@@ -142,28 +141,18 @@ fn main() {
 ```
 
 If your table has large elements, you may want to save memory by only holding
-each element once (e.g. vec::AsLockHandle\<Arc\<i32>>). This can be done safely so
-long as no elements of the table are mutated, only inserted and removed. Using a
-vector as an example, if you wanted a function that increases the value of the
-first element by 1, you would not increment the value behind the Arc. You would
-reassign the first element to a new Arc with the incremented value.
+each element once (e.g. `vec::AsLockHandle<Arc<i32>>`). This can be done
+safely so long as no elements of the table are mutated, only inserted and
+removed. Using a vector as an example, if you wanted a function that increases
+the value of the first element by 1, you would not increment the value behind
+the Arc. You would reassign the first element to a new Arc with the incremented
+value.
 
+Example of large elements, using the raw `update_tables` interface:
 ```rust
 use std::sync::Arc;
 use active_standby::primitives::UpdateTables;
 use active_standby::primitives::lockless::AsLockHandle;
-
-struct Push {
-    val: Arc<i32>
-}
-impl<'a> UpdateTables<'a, Vec<Arc<i32>>, ()> for Push {
-    fn apply_first(&mut self, table: &'a mut Vec<Arc<i32>>) {
-        table.push(Arc::clone(&self.val))
-    }
-    fn apply_second(mut self, table: &mut Vec<Arc<i32>>) {
-        table.push(self.val)
-    }
-}
 
 struct UpdateVal {
     index: usize,
@@ -181,9 +170,9 @@ impl<'a> UpdateTables<'a, Vec<Arc<i32>>, ()> for UpdateVal {
 
 fn main() {
     let table = AsLockHandle::<Vec<Arc<i32>>>::default();
-    table.write().unwrap().update_tables(Push {
-        val: Arc::new(1)
-    });
+    table.write().unwrap().update_tables_closure(
+        |table| table.push(Arc::new(1))
+    );
     table.write().unwrap().update_tables(UpdateVal {
         index: 0,
         val: Arc::new(2)
