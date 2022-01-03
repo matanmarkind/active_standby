@@ -149,7 +149,7 @@ the Arc. You would reassign the first element to a new Arc with the incremented
 value.
 
 Example of large elements, using the raw `update_tables` interface
-(see`UpdateTables` trait):
+(see `UpdateTables` trait):
 ```rust
 use std::sync::Arc;
 use active_standby::primitives::UpdateTables;
