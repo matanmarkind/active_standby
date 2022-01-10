@@ -82,7 +82,14 @@ impl<T> AsLock<T> {
     /// 3. Replaying all of the updates that were applied to the last
     ///    WriteGuard.
     pub fn write(&self) -> LockResult<WriteGuard<'_, T>> {
-        // Done first to ensure that it is single threaded.
+        // Done first to ensure that it is single threaded. If WriteGuard is
+        // ever poisoned, this will make all future calls to `write` panic.
+        //
+        // The only way for the tables to get poisoned is via an
+        // RwLockWriteGuard (RwLockReadGuard won't poison if dropped via a
+        // panic). Therefore we shouldn't need to handle `wg` (below) being
+        // `Err`, since in any situation where the WriteGuard would be poisoned,
+        // this mutex would also be poisoned, preventing that code from running.
         let mut ops_to_replay = self.ops_to_replay.lock().unwrap();
 
         // Grab the standby table and obtain a WriteGuard to it. This may hang
@@ -475,5 +482,75 @@ mod test {
             format!("{:?}", aslock.read().unwrap()),
             "ShardedLockReadGuard { lock: ShardedLock { data: [2] } }"
         );
+    }
+
+    #[test]
+    fn panic_with_wguard_poisons_rguard() {
+        let table = Arc::new(AsLock::<Vec<i32>>::default());
+        let panic_handle = {
+            let table = Arc::clone(&table);
+            thread::spawn(move || {
+                {
+                    let mut wg = table.write().unwrap();
+                    wg.update_tables(PushVec { value: 2 });
+                }
+                {
+                    let mut _wg = table.write().unwrap();
+                    panic!("Panic while holding the WriteGuard");
+                }
+            })
+        };
+        assert!(panic_handle.join().is_err());
+
+        assert!(table.read().is_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "called `Result::unwrap()` on an `Err` value: PoisonError { .. }")]
+    fn panic_with_wguard_makes_all_writes_panic() {
+        let table = Arc::new(AsLock::<Vec<i32>>::default());
+        let panic_handle = {
+            let table = Arc::clone(&table);
+            thread::spawn(move || {
+                {
+                    let mut wg = table.write().unwrap();
+                    wg.update_tables(PushVec { value: 2 });
+                }
+                {
+                    let mut _wg = table.write().unwrap();
+                    panic!("Panic while holding the WriteGuard");
+                }
+            })
+        };
+        assert!(panic_handle.join().is_err());
+
+        // Panics trying to unwrap `ops_to_replay`.
+        let _wg = table.write();
+    }
+
+    #[test]
+    fn panic_with_rguard() {
+        let table = Arc::new(AsLock::<Vec<i32>>::default());
+        let panic_handle = {
+            let table = Arc::clone(&table);
+            thread::spawn(move || {
+                {
+                    let mut wg = table.write().unwrap();
+                    wg.update_tables(PushVec { value: 2 });
+                }
+                {
+                    let mut _rg = table.read().unwrap();
+                    panic!("Panic while holding the ReadGuard");
+                }
+            })
+        };
+        assert!(panic_handle.join().is_err());
+
+        // RG is still valid.
+        assert_eq!(*table.read().unwrap(), vec![2]);
+
+        // WG remains valid.
+        table.write().unwrap().update_tables(PushVec { value: 3 });
+        assert_eq!(*table.read().unwrap(), vec![2, 3]);
     }
 }
