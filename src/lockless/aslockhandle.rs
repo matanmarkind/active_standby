@@ -92,3 +92,309 @@ where
             .finish()
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::thread;
+
+    struct PushVec<T> {
+        value: T,
+    }
+    impl<'a, T> UpdateTables<'a, Vec<T>, ()> for PushVec<T>
+    where
+        T: Clone,
+    {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) {
+            table.push(self.value.clone());
+        }
+        fn apply_second(self, table: &mut Vec<T>) {
+            table.push(self.value); // Move the value instead of cloning.
+        }
+    }
+
+    struct PopVec {}
+    impl PopVec {
+        fn apply<'a, T>(&mut self, table: &'a mut Vec<T>) -> Option<T> {
+            table.pop()
+        }
+    }
+    impl<'a, T> UpdateTables<'a, Vec<T>, Option<T>> for PopVec {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) -> Option<T> {
+            self.apply(table)
+        }
+        fn apply_second(mut self, table: &mut Vec<T>) {
+            (&mut self).apply(table);
+        }
+    }
+
+    /// This is an example of what not to do!
+    struct MutableRef {}
+    impl<'a, T> UpdateTables<'a, Vec<T>, &'a mut T> for MutableRef {
+        fn apply_first(&mut self, table: &'a mut Vec<T>) -> &'a mut T {
+            &mut table[0]
+        }
+        fn apply_second(self, table: &mut Vec<T>) {
+            let _ = &mut table[0];
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Reader is not reentrant")]
+    fn reader_not_reentrant() {
+        let table = AsLockHandle::<Vec<i32>>::default();
+        let _rg1 = table.read();
+        let _rg2 = table.read();
+    }
+
+    #[test]
+    fn writer_not_reentrant() {
+        let table = AsLockHandle::<Vec<i32>>::from_identical(vec![], vec![]);
+        let _wg = table.write().unwrap();
+
+        // If we uncomment this line the test fails due to Mutex not being
+        // re-entrant. While it is well defined that the program will not
+        // proceed it is not defined how exactly the failure will occur, so we
+        // cannot expect a panic as this may deadlock and hang.
+        //
+        // let wg2 = table.write().unwrap();
+    }
+
+    #[test]
+    fn publish_update() {
+        let table = AsLockHandle::<Vec<i32>>::new(vec![]);
+        assert_eq!(table.read().unwrap().len(), 0);
+
+        {
+            let mut wg = table.write().unwrap();
+            wg.update_tables(PushVec { value: 2 });
+            assert_eq!(wg.len(), 1);
+            assert_eq!(table.read().unwrap().len(), 0);
+        }
+
+        // When the write guard is dropped it publishes the changes to the readers.
+        assert_eq!(*table.read().unwrap(), vec![2]);
+    }
+
+    #[test]
+    fn update_tables_closure() {
+        let table = AsLockHandle::<Vec<i32>>::default();
+        assert_eq!(table.read().unwrap().len(), 0);
+
+        {
+            let mut wg = table.write().unwrap();
+            wg.update_tables_closure(|vec| vec.push(2));
+            assert_eq!(wg.len(), 1);
+            assert_eq!(table.read().unwrap().len(), 0);
+        }
+
+        // When the write guard is dropped it publishes the changes to the readers.
+        assert_eq!(*table.read().unwrap(), vec![2]);
+    }
+
+    #[test]
+    fn multi_apply() {
+        let table = AsLockHandle::<Vec<i32>>::default();
+        {
+            let mut wg = table.write().unwrap();
+            wg.update_tables(PushVec { value: 2 });
+            wg.update_tables(PushVec { value: 3 });
+            wg.update_tables(PushVec { value: 4 });
+            wg.update_tables(PopVec {});
+            wg.update_tables(PushVec { value: 5 });
+        }
+        assert_eq!(*table.read().unwrap(), vec![2, 3, 5]);
+    }
+
+    #[test]
+    fn multi_publish() {
+        let table = AsLockHandle::<Vec<Box<i32>>>::default();
+        {
+            let mut wg = table.write().unwrap();
+            wg.update_tables(PushVec { value: Box::new(2) });
+            wg.update_tables(PushVec { value: Box::new(3) });
+            wg.update_tables(PopVec {});
+            wg.update_tables(PushVec { value: Box::new(5) });
+        }
+        assert_eq!(*table.read().unwrap(), vec![Box::new(2), Box::new(5)]);
+
+        {
+            let mut wg = table.write().unwrap();
+            wg.update_tables(PushVec { value: Box::new(9) });
+            wg.update_tables(PushVec { value: Box::new(8) });
+            wg.update_tables(PopVec {});
+            wg.update_tables(PushVec { value: Box::new(7) });
+        }
+        assert_eq!(
+            *table.read().unwrap(),
+            vec![Box::new(2), Box::new(5), Box::new(9), Box::new(7)]
+        );
+
+        table.write().unwrap().update_tables(PopVec {});
+        assert_eq!(
+            *table.read().unwrap(),
+            vec![Box::new(2), Box::new(5), Box::new(9)]
+        );
+    }
+
+    #[test]
+    fn multi_thread() {
+        let table = AsLockHandle::<Vec<i32>>::default();
+        let handler = {
+            let table = table.clone();
+            thread::spawn(move || {
+                while *table.read().unwrap() != vec![2, 3, 5] {
+                    // Since commits oly happen when a WriteGuard is dropped no reader
+                    // will see this state.
+                    assert_ne!(*table.read().unwrap(), vec![2, 3, 4]);
+                }
+
+                // Show multiple readers in multiple threads.
+                let handler = {
+                    let table = table.clone();
+                    thread::spawn(move || while *table.read().unwrap() != vec![2, 3, 5] {})
+                };
+                assert!(handler.join().is_ok());
+            })
+        };
+
+        {
+            let mut wg = table.write().unwrap();
+            wg.update_tables(PushVec { value: 2 });
+            wg.update_tables(PushVec { value: 3 });
+            wg.update_tables(PushVec { value: 4 });
+            wg.update_tables(PopVec {});
+            wg.update_tables(PushVec { value: 5 });
+        }
+
+        assert!(handler.join().is_ok());
+    }
+
+    #[test]
+    fn writer_dropped() {
+        // Show that when the Writer is dropped, Readers remain valid.
+        let table;
+        {
+            table = AsLockHandle::<Vec<i32>>::default();
+
+            {
+                let mut wg = table.write().unwrap();
+                wg.update_tables(PushVec { value: 2 });
+                wg.update_tables(PushVec { value: 3 });
+                wg.update_tables(PushVec { value: 4 });
+                wg.update_tables(PopVec {});
+                wg.update_tables(PushVec { value: 5 });
+            }
+        }
+        assert_eq!(*table.read().unwrap(), vec![2, 3, 5]);
+    }
+
+    #[test]
+    fn debug_str() {
+        let table = AsLockHandle::<Vec<i32>>::default();
+        assert_eq!(
+            format!("{:?}", table),
+            "AsLockHandle { writer: Writer { num_readers: 1, ops_to_replay: 0, standby_table: [] }, reader: Reader { num_readers: 1, active_table: [] } }"
+        );
+
+        {
+            let mut wg = table.write().unwrap();
+            wg.update_tables(PushVec { value: 2 });
+            assert_eq!(
+                format!("{:?}", wg),
+                "WriteGuard { swap_active_and_standby: true, num_readers: 1, ops_to_replay: 1, standby_table: [2] }");
+        }
+
+        // No second WriteGuard has been created, so we have yet to replay the
+        // ops on the standby_table.
+        assert_eq!(
+            format!("{:?}", table),
+            "AsLockHandle { writer: Writer { num_readers: 1, ops_to_replay: 1, standby_table: [] }, reader: Reader { num_readers: 1, active_table: [2] } }"
+        );
+        assert_eq!(
+            format!("{:?}", table.read().unwrap()),
+            "ReadGuard { active_table: [2] }"
+        );
+    }
+
+    #[test]
+    fn mutable_ref() {
+        // Show that when the Writer is dropped, Readers remain valid.
+        let table = AsLockHandle::<Vec<i32>>::default();
+
+        {
+            // Show that without giving a mutable interface we can still mutate
+            // the underlying values in the table which will cause them to lose
+            // consistency.
+            let mut wg = table.write().unwrap();
+            wg.update_tables(PushVec { value: 2 });
+            let mr = wg.update_tables(MutableRef {});
+            *mr = 10;
+        }
+
+        assert_eq!(*table.read().unwrap(), vec![10]);
+
+        // This is bad and something clients must avoid. See comment on
+        // UpdateTables trait for why this cannot be enforced by the library.
+        assert_ne!(*table.read().unwrap(), *table.write().unwrap());
+    }
+
+    #[test]
+    fn panic_with_wguard() {
+        let table = AsLockHandle::<Vec<i32>>::default();
+        let panic_handle = {
+            let table = table.clone();
+            thread::spawn(move || {
+                {
+                    let mut wg = table.write().unwrap();
+                    wg.update_tables(PushVec { value: 2 });
+                }
+                {
+                    let mut _wg = table.write().unwrap();
+                    panic!("Panic while holding the WriteGuard");
+                }
+            })
+        };
+        assert!(panic_handle.join().is_err());
+
+        // RG is still valid.
+        assert_eq!(*table.read().unwrap(), vec![2]);
+
+        // WG returns Error.
+        match table.write() {
+            Ok(_) => panic!("Expected an error"),
+            Err(e) => {
+                let mut wg = e.into_inner();
+                wg.update_tables(PushVec { value: 2 });
+            }
+        };
+        // Updates stop being published since the tables are in lockdown.
+        assert_eq!(*table.read().unwrap(), vec![2]);
+    }
+
+    #[test]
+    fn panic_with_rguard() {
+        let table = AsLockHandle::<Vec<i32>>::default();
+        let panic_handle = {
+            let table = table.clone();
+            thread::spawn(move || {
+                {
+                    let mut wg = table.write().unwrap();
+                    wg.update_tables(PushVec { value: 2 });
+                }
+                {
+                    let mut _rg = table.read().unwrap();
+                    panic!("Panic while holding the ReadGuard");
+                }
+            })
+        };
+        assert!(panic_handle.join().is_err());
+
+        // RG is still valid.
+        assert_eq!(*table.read().unwrap(), vec![2]);
+
+        // WG remains valid.
+        table.write().unwrap().update_tables(PushVec { value: 3 });
+        assert_eq!(*table.read().unwrap(), vec![2, 3]);
+    }
+}
