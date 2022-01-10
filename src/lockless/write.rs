@@ -166,7 +166,8 @@ where
         // print statement with: "Writer : Mutex : InnerWriter: <info>".
         match self.inner.try_lock() {
             Ok(mg) => {
-                // See comments on `Table::standby_table` for safety.
+                // By holding the mutex lock we guarantee there are no mutable
+                // references to the standby table.
                 let standby_table = unsafe { mg.table.standby_table() };
                 f.debug_struct("Writer")
                     .field("num_readers", &mg.readers.lock().unwrap().len())
