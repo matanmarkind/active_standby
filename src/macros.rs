@@ -286,3 +286,24 @@ macro_rules! generate_shared_aslock {
         }
     }
 }
+
+/// Testing convenience for checking that tables hold the expected value. The
+/// test works as follows:
+/// 1. assert_eq!(ReadGuard, expected) - basic check
+/// 2. assert_eq!(WriteGuard, expected) - this triggers replaying the ops on the
+///    second table and seeing that it is updated appropriately and that the
+///    WriteGuard's view matches the expectation.
+/// 3. assert_eq!(ReadGuard, expected) - This should be a read of the other
+///    table, which confirms that reads to both tables match the
+///    expectation/receive the updates.
+///
+/// Works for both shared::AsLock & lockless::AsLockHandle since they have the
+/// same interface.
+#[macro_export]
+macro_rules! assert_tables_eq {
+    ($table:expr, $expected:expr) => {
+        assert_eq!(*$table.read().unwrap(), $expected);
+        assert_eq!(*$table.write().unwrap(), $expected);
+        assert_eq!(*$table.read().unwrap(), $expected);
+    };
+}
