@@ -18,6 +18,9 @@ use crate::types::*;
 pub struct AsLockHandle<T> {
     writer: std::sync::Arc<Writer<T>>,
     reader: Reader<T>,
+
+    // Make un-sync.
+    _not_sync: std::cell::UnsafeCell<fn(&T)>,
 }
 
 impl<T> AsLockHandle<T> {
@@ -32,6 +35,7 @@ impl<T> AsLockHandle<T> {
         AsLockHandle {
             writer: std::sync::Arc::new(writer),
             reader,
+            _not_sync: std::cell::UnsafeCell::new(|_| {}),
         }
     }
 
@@ -77,7 +81,11 @@ impl<T> Clone for AsLockHandle<T> {
     fn clone(&self) -> AsLockHandle<T> {
         let writer = std::sync::Arc::clone(&self.writer);
         let reader = self.reader.clone();
-        AsLockHandle { writer, reader }
+        AsLockHandle {
+            writer,
+            reader,
+            _not_sync: std::cell::UnsafeCell::new(|_| {}),
+        }
     }
 }
 
