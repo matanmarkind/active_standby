@@ -5,7 +5,7 @@ echo '
 $ sudo cargo clean
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 '
-cargo clean
+sudo cargo clean
 
 # Rudra seems to need to be run with sudo & the environment variables didn't
 # seem to stick for me locally. Also running it in sudo creates compilation
@@ -13,10 +13,18 @@ cargo clean
 # that user can fill in the sudo password and then leave it to run.
 echo '
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-$ sudo RUDRA_RUNNER_HOME=~/rust/Rudra/rudra_runner ~/rust/Rudra/docker-helper/docker-cargo-rudra ~/rust/active_standby && sudo cargo clean
+$ sudo RUDRA_RUNNER_HOME=~/rust/Rudra/rudra_runner ~/rust/Rudra/docker-helper/docker-cargo-rudra ~/rust/active_standby
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 '
-sudo RUDRA_RUNNER_HOME=~/rust/Rudra/rudra_runner ~/rust/Rudra/docker-helper/docker-cargo-rudra ~/rust/active_standby && sudo cargo clean
+sudo RUDRA_RUNNER_HOME=~/rust/Rudra/rudra_runner ~/rust/Rudra/docker-helper/docker-cargo-rudra ~/rust/active_standby
+
+echo '
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+$ sudo cargo clean
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+'
+sudo cargo clean
+
 
 echo '
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
