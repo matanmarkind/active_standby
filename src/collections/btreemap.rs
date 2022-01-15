@@ -42,6 +42,25 @@ where
     }
 }
 
+struct Retain<F> {
+    f: F,
+}
+
+impl<'a, K, V, F> UpdateTables<'a, BTreeMap<K, V>, ()> for Retain<F>
+where
+    K: Ord,
+    V: Clone,
+    F: Clone + FnMut(&K, &mut V) -> bool,
+{
+    fn apply_first(&mut self, table: &'a mut BTreeMap<K, V>) {
+        table.retain(self.f.clone())
+    }
+
+    fn apply_second(self, table: &mut BTreeMap<K, V>) {
+        table.retain(self.f);
+    }
+}
+
 /// Implementation of BtreeeMap for use in the active_standby model.
 /// `lockless::AsLockHandle<K, V>`, should function similarly to
 /// `Arc<RwLock<BTreeMap<K, V>>>`.
@@ -82,6 +101,13 @@ pub mod lockless {
 
         pub fn append(&mut self, other: BTreeMap<K, V>) {
             self.guard.update_tables(Append { other })
+        }
+
+        pub fn retain<F>(&mut self, f: F)
+        where
+            F: 'static + Send + Clone + FnMut(&K, &mut V) -> bool,
+        {
+            self.guard.update_tables(Retain { f })
         }
     }
 }
@@ -127,12 +153,20 @@ pub mod shared {
         pub fn append(&mut self, other: BTreeMap<K, V>) {
             self.guard.update_tables(Append { other })
         }
+
+        pub fn retain<F>(&mut self, f: F)
+        where
+            F: 'static + Send + Clone + FnMut(&K, &mut V) -> bool,
+        {
+            self.guard.update_tables(Retain { f })
+        }
     }
 }
 
 #[cfg(test)]
 mod lockless_test {
     use super::*;
+    use crate::assert_tables_eq;
     use maplit::*;
 
     #[test]
@@ -149,10 +183,7 @@ mod lockless_test {
             wg.insert("world", 2);
             assert_eq!(*wg, expected);
         }
-
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+        assert_tables_eq!(table, expected);
     }
 
     #[test]
@@ -185,9 +216,7 @@ mod lockless_test {
             assert_eq!(*wg, expected);
         }
 
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+        assert_tables_eq!(table, expected);
     }
 
     #[test]
@@ -205,9 +234,7 @@ mod lockless_test {
             assert_eq!(*wg, expected);
         }
 
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+        assert_tables_eq!(table, expected);
     }
 
     #[test]
@@ -235,9 +262,29 @@ mod lockless_test {
             assert_eq!(*wg, expected);
         }
 
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+        assert_tables_eq!(table, expected);
+    }
+
+    #[test]
+    fn retain() {
+        let table = lockless::AsLockHandle::new(btreemap! {
+            "hello" => 1,
+            "world" => 2,
+            "name's" => 3,
+            "joe" => 4,
+        });
+        table
+            .write()
+            .unwrap()
+            .retain(|k, v| k == &"hello" || *v % 2 == 0);
+        assert_tables_eq!(
+            table,
+            btreemap! {
+                "hello" => 1,
+                "world" => 2,
+                "joe" => 4,
+            }
+        );
     }
 
     #[test]
@@ -265,6 +312,7 @@ mod lockless_test {
 #[cfg(test)]
 mod shared_test {
     use super::*;
+    use crate::assert_tables_eq;
     use maplit::*;
     use std::sync::Arc;
 
@@ -283,9 +331,7 @@ mod shared_test {
             assert_eq!(*wg, expected);
         }
 
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+        assert_tables_eq!(table, expected);
     }
 
     #[test]
@@ -318,9 +364,7 @@ mod shared_test {
             assert_eq!(*wg, expected);
         }
 
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+        assert_tables_eq!(table, expected);
     }
 
     #[test]
@@ -338,9 +382,7 @@ mod shared_test {
             assert_eq!(*wg, expected);
         }
 
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+        assert_tables_eq!(table, expected);
     }
 
     #[test]
@@ -368,9 +410,29 @@ mod shared_test {
             assert_eq!(*wg, expected);
         }
 
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+        assert_tables_eq!(table, expected);
+    }
+
+    #[test]
+    fn retain() {
+        let table = shared::AsLock::new(btreemap! {
+            "hello" => 1,
+            "world" => 2,
+            "name's" => 3,
+            "joe" => 4,
+        });
+        table
+            .write()
+            .unwrap()
+            .retain(|k, v| k == &"hello" || *v % 2 == 0);
+        assert_tables_eq!(
+            table,
+            btreemap! {
+                "hello" => 1,
+                "world" => 2,
+                "joe" => 4,
+            }
+        );
     }
 
     #[test]
