@@ -1,5 +1,5 @@
 use crate::primitives::UpdateTables;
-use std::collections::TryReserveError;
+// use std::collections::TryReserveError;
 use std::ops::RangeBounds;
 
 // Define the functions that the active_standby vector will have. Note that we
@@ -15,7 +15,7 @@ where
     T: Clone,
 {
     fn apply_first(&mut self, table: &'a mut Vec<T>) {
-        table.push(self.value.clone());
+        table.push(self.value.clone())
     }
     fn apply_second(self, table: &mut Vec<T>) {
         table.push(self.value); // Move the value instead of cloning.
@@ -40,10 +40,57 @@ where
     }
 }
 
-struct Drain<R>
+struct Append<T> {
+    value: Vec<T>,
+}
+
+impl<'a, T> UpdateTables<'a, Vec<T>, ()> for Append<T>
+where
+    T: Clone,
+{
+    fn apply_first(&mut self, table: &'a mut Vec<T>) {
+        table.append(&mut self.value.clone())
+    }
+    fn apply_second(mut self, table: &mut Vec<T>) {
+        table.append(&mut self.value);
+    }
+}
+
+struct ResizeWith<F> {
+    new_len: usize,
+    f: F,
+}
+
+impl<'a, T, F> UpdateTables<'a, Vec<T>, ()> for ResizeWith<F>
+where
+    F: Clone + FnMut() -> T,
+{
+    fn apply_first(&mut self, table: &'a mut Vec<T>) {
+        table.resize_with(self.new_len, self.f.clone())
+    }
+    fn apply_second(self, table: &mut Vec<T>) {
+        table.resize_with(self.new_len, self.f);
+    }
+}
+
+struct ExtendFromWithin<R> {
+    range: R,
+}
+
+impl<'a, T, R> UpdateTables<'a, Vec<T>, ()> for ExtendFromWithin<R>
 where
     R: 'static + Clone + RangeBounds<usize>,
+    T: Clone,
 {
+    fn apply_first(&mut self, table: &'a mut Vec<T>) {
+        table.extend_from_within(self.range.clone())
+    }
+    fn apply_second(self, table: &mut Vec<T>) {
+        table.extend_from_within(self.range);
+    }
+}
+
+struct Drain<R> {
     range: R,
 }
 
@@ -59,15 +106,11 @@ where
     }
 }
 
-struct Retain<T, F>
-where
-    F: 'static + Clone + FnMut(&T) -> bool,
-{
+struct Retain<F> {
     f: F,
-    _compile_t: std::marker::PhantomData<fn(*const T)>,
 }
 
-impl<'a, T, F> UpdateTables<'a, Vec<T>, ()> for Retain<T, F>
+impl<'a, T, F> UpdateTables<'a, Vec<T>, ()> for Retain<F>
 where
     F: 'static + Clone + FnMut(&T) -> bool,
 {
@@ -79,15 +122,11 @@ where
     }
 }
 
-struct DedupByKey<T, F, K>
-where
-    F: 'static + Clone + FnMut(&mut T) -> K,
-    K: PartialEq<K>,
-{
+struct DedupByKey<F> {
     f: F,
-    _compile_t: std::marker::PhantomData<fn(*const T)>,
 }
-impl<'a, T, F, K> UpdateTables<'a, Vec<T>, ()> for DedupByKey<T, F, K>
+
+impl<'a, T, F, K> UpdateTables<'a, Vec<T>, ()> for DedupByKey<F>
 where
     F: 'static + Clone + FnMut(&mut T) -> K,
     K: PartialEq<K>,
@@ -100,14 +139,11 @@ where
     }
 }
 
-struct DedupBy<T, F>
-where
-    F: 'static + Clone + FnMut(&mut T, &mut T) -> bool,
-{
+struct DedupBy<F> {
     f: F,
-    _compile_t: std::marker::PhantomData<fn(*const T)>,
 }
-impl<'a, T, F> UpdateTables<'a, Vec<T>, ()> for DedupBy<T, F>
+
+impl<'a, T, F> UpdateTables<'a, Vec<T>, ()> for DedupBy<F>
 where
     F: 'static + Clone + FnMut(&mut T, &mut T) -> bool,
 {
@@ -116,6 +152,22 @@ where
     }
     fn apply_second(self, table: &mut Vec<T>) {
         table.dedup_by(self.f)
+    }
+}
+
+struct SortBy<F> {
+    f: F,
+}
+
+impl<'a, T, F> UpdateTables<'a, Vec<T>, ()> for SortBy<F>
+where
+    F: Clone + FnMut(&T, &T) -> std::cmp::Ordering,
+{
+    fn apply_first(&mut self, table: &'a mut Vec<T>) {
+        table.sort_by(self.f.clone())
+    }
+    fn apply_second(self, table: &mut Vec<T>) {
+        table.sort_by(self.f)
     }
 }
 
@@ -134,6 +186,12 @@ pub mod lockless {
             self.guard.update_tables(Push { value })
         }
 
+        pub fn append(&mut self, other: &mut Vec<T>) {
+            self.guard.update_tables(Append {
+                value: other.drain(..).collect(),
+            })
+        }
+
         pub fn insert(&mut self, index: usize, element: T) {
             self.guard.update_tables(Insert { index, element })
         }
@@ -143,8 +201,14 @@ pub mod lockless {
         pub fn clear(&mut self) {
             self.guard.update_tables_closure(move |table| table.clear())
         }
+
         pub fn pop(&mut self) -> Option<T> {
             self.guard.update_tables_closure(move |table| table.pop())
+        }
+
+        pub fn reverse(&mut self) {
+            self.guard
+                .update_tables_closure(move |table| table.reverse())
         }
 
         pub fn reserve(&mut self, additional: usize) {
@@ -157,15 +221,15 @@ pub mod lockless {
                 .update_tables_closure(move |table| table.reserve_exact(additional))
         }
 
-        pub fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
-            self.guard
-                .update_tables_closure(move |table| table.try_reserve(additional))
-        }
+        // pub fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
+        //     self.guard
+        //         .update_tables_closure(move |table| table.try_reserve(additional))
+        // }
 
-        pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), TryReserveError> {
-            self.guard
-                .update_tables_closure(move |table| table.try_reserve_exact(additional))
-        }
+        // pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), TryReserveError> {
+        //     self.guard
+        //         .update_tables_closure(move |table| table.try_reserve_exact(additional))
+        // }
 
         pub fn shrink_to_fit(&mut self) {
             self.guard
@@ -191,6 +255,73 @@ pub mod lockless {
             self.guard
                 .update_tables_closure(move |table| table.remove(index))
         }
+
+        pub fn extend_from_within<R>(&mut self, range: R)
+        where
+            R: 'static + Clone + Send + RangeBounds<usize>,
+            T: Clone,
+        {
+            self.guard.update_tables(ExtendFromWithin { range })
+        }
+
+        pub fn retain<F>(&mut self, f: F)
+        where
+            F: 'static + Clone + Send + FnMut(&T) -> bool,
+        {
+            self.guard.update_tables(Retain { f })
+        }
+
+        pub fn resize_with<F>(&mut self, new_len: usize, f: F)
+        where
+            F: 'static + Clone + Send + FnMut() -> T,
+        {
+            self.guard.update_tables(ResizeWith { new_len, f })
+        }
+
+        pub fn dedup_by_key<F, K>(&mut self, f: F)
+        where
+            F: 'static + Clone + Send + FnMut(&mut T) -> K,
+            K: 'static + PartialEq<K>, // Shouldn't need a lifetime.
+        {
+            self.guard.update_tables(DedupByKey { f })
+        }
+
+        pub fn dedup_by<F>(&mut self, f: F)
+        where
+            F: 'static + Clone + Send + FnMut(&mut T, &mut T) -> bool,
+        {
+            self.guard.update_tables(DedupBy { f })
+        }
+
+        pub fn sort_by<F>(&mut self, f: F)
+        where
+            F: 'static + Clone + Send + FnMut(&T, &T) -> std::cmp::Ordering,
+        {
+            self.guard.update_tables(SortBy { f })
+        }
+    }
+
+    impl<'w, T> WriteGuard<'w, T>
+    where
+        T: Ord,
+    {
+        pub fn sort(&mut self) {
+            self.guard.update_tables_closure(move |table| table.sort())
+        }
+
+        pub fn sort_unstable(&mut self) {
+            self.guard
+                .update_tables_closure(move |table| table.sort_unstable())
+        }
+    }
+
+    impl<'w, T> WriteGuard<'w, T>
+    where
+        T: PartialEq<T>,
+    {
+        pub fn dedup(&mut self) {
+            self.guard.update_tables_closure(|table| table.dedup())
+        }
     }
 
     impl<'w, 'a, T> WriteGuard<'w, T> {
@@ -199,39 +330,6 @@ pub mod lockless {
             R: 'static + Clone + Send + RangeBounds<usize>,
         {
             self.guard.update_tables(Drain { range })
-        }
-    }
-
-    impl<'w, T: 'static> WriteGuard<'w, T> {
-        pub fn retain<F>(&mut self, f: F)
-        where
-            F: 'static + Clone + Send + FnMut(&T) -> bool,
-        {
-            self.guard.update_tables(Retain {
-                f,
-                _compile_t: std::marker::PhantomData::<fn(*const T)>,
-            })
-        }
-
-        pub fn dedup_by_key<F, K>(&mut self, f: F)
-        where
-            F: 'static + Clone + Send + FnMut(&mut T) -> K,
-            K: 'static + PartialEq<K>, // Shouldn't need a lifetime.
-        {
-            self.guard.update_tables(DedupByKey {
-                f,
-                _compile_t: std::marker::PhantomData::<fn(*const T)>,
-            })
-        }
-
-        pub fn dedup_by<F>(&mut self, f: F)
-        where
-            F: 'static + Clone + Send + FnMut(&mut T, &mut T) -> bool,
-        {
-            self.guard.update_tables(DedupBy {
-                f,
-                _compile_t: std::marker::PhantomData::<fn(*const T)>,
-            })
         }
     }
 }
@@ -250,6 +348,12 @@ pub mod shared {
             self.guard.update_tables(Push { value })
         }
 
+        pub fn append(&mut self, other: &mut Vec<T>) {
+            self.guard.update_tables(Append {
+                value: other.drain(..).collect(),
+            })
+        }
+
         pub fn insert(&mut self, index: usize, element: T) {
             self.guard.update_tables(Insert { index, element })
         }
@@ -273,15 +377,15 @@ pub mod shared {
                 .update_tables_closure(move |table| table.reserve_exact(additional))
         }
 
-        pub fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
-            self.guard
-                .update_tables_closure(move |table| table.try_reserve(additional))
-        }
+        // pub fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
+        //     self.guard
+        //         .update_tables_closure(move |table| table.try_reserve(additional))
+        // }
 
-        pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), TryReserveError> {
-            self.guard
-                .update_tables_closure(move |table| table.try_reserve_exact(additional))
-        }
+        // pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), TryReserveError> {
+        //     self.guard
+        //         .update_tables_closure(move |table| table.try_reserve_exact(additional))
+        // }
 
         pub fn shrink_to_fit(&mut self) {
             self.guard
@@ -307,19 +411,27 @@ pub mod shared {
             self.guard
                 .update_tables_closure(move |table| table.remove(index))
         }
-    }
 
-    // TODO: See if there is a way to remove the 'static from T. I think it may
-    // be an artifact of the PhantomData.
-    impl<'w, T: 'static> WriteGuard<'w, T> {
+        pub fn extend_from_within<R>(&mut self, range: R)
+        where
+            R: 'static + Clone + Send + RangeBounds<usize>,
+            T: Clone,
+        {
+            self.guard.update_tables(ExtendFromWithin { range })
+        }
+
         pub fn retain<F>(&mut self, f: F)
         where
             F: 'static + Clone + Send + FnMut(&T) -> bool,
         {
-            self.guard.update_tables(Retain {
-                f,
-                _compile_t: std::marker::PhantomData::<fn(*const T)>,
-            })
+            self.guard.update_tables(Retain { f })
+        }
+
+        pub fn resize_with<F>(&mut self, new_len: usize, f: F)
+        where
+            F: 'static + Clone + Send + FnMut() -> T,
+        {
+            self.guard.update_tables(ResizeWith { new_len, f })
         }
 
         pub fn dedup_by_key<F, K>(&mut self, f: F)
@@ -327,20 +439,44 @@ pub mod shared {
             F: 'static + Clone + Send + FnMut(&mut T) -> K,
             K: 'static + PartialEq<K>, // Shouldn't need a lifetime.
         {
-            self.guard.update_tables(DedupByKey {
-                f,
-                _compile_t: std::marker::PhantomData::<fn(*const T)>,
-            })
+            self.guard.update_tables(DedupByKey { f })
         }
 
         pub fn dedup_by<F>(&mut self, f: F)
         where
             F: 'static + Clone + Send + FnMut(&mut T, &mut T) -> bool,
         {
-            self.guard.update_tables(DedupBy {
-                f,
-                _compile_t: std::marker::PhantomData::<fn(*const T)>,
-            })
+            self.guard.update_tables(DedupBy { f })
+        }
+
+        pub fn sort_by<F>(&mut self, f: F)
+        where
+            F: 'static + Clone + Send + FnMut(&T, &T) -> std::cmp::Ordering,
+        {
+            self.guard.update_tables(SortBy { f })
+        }
+    }
+
+    impl<'w, T> WriteGuard<'w, T>
+    where
+        T: Ord,
+    {
+        pub fn sort(&mut self) {
+            self.guard.update_tables_closure(move |table| table.sort())
+        }
+
+        pub fn sort_unstable(&mut self) {
+            self.guard
+                .update_tables_closure(move |table| table.sort_unstable())
+        }
+    }
+
+    impl<'w, T> WriteGuard<'w, T>
+    where
+        T: PartialEq<T>,
+    {
+        pub fn dedup(&mut self) {
+            self.guard.update_tables_closure(|table| table.dedup())
         }
     }
 
@@ -357,6 +493,7 @@ pub mod shared {
 #[cfg(test)]
 mod lockless_test {
     use super::*;
+    use crate::assert_tables_eq;
 
     #[test]
     fn push() {
@@ -372,9 +509,7 @@ mod lockless_test {
         }
 
         // When the write guard is dropped it publishes the changes to the readers.
-        assert_eq!(*lock1.read().unwrap(), vec![2]);
-        assert_eq!(*lock1.write().unwrap(), vec![2]);
-        assert_eq!(*lock1.read().unwrap(), vec![2]);
+        assert_tables_eq!(lock1, vec![2]);
     }
 
     #[test]
@@ -391,14 +526,10 @@ mod lockless_test {
         }
 
         // When the write guard is dropped it publishes the changes to the readers.
-        assert_eq!(*aslock.read().unwrap(), vec![2]);
-        assert_eq!(*aslock.write().unwrap(), vec![2]);
-        assert_eq!(*aslock.read().unwrap(), vec![2]);
+        assert_tables_eq!(aslock, vec![2]);
 
         aslock.write().unwrap().clear();
-        assert_eq!(*aslock.read().unwrap(), vec![]);
-        assert_eq!(*aslock.write().unwrap(), vec![]);
-        assert_eq!(*aslock.read().unwrap(), vec![]);
+        assert_tables_eq!(aslock, vec![]);
     }
 
     #[test]
@@ -413,34 +544,36 @@ mod lockless_test {
         }
 
         // When the write guard is dropped it publishes the changes to the readers.
-        assert_eq!(*table.read().unwrap(), vec![2, 4]);
-        assert_eq!(*table.write().unwrap(), vec![2, 4]);
-        assert_eq!(*table.read().unwrap(), vec![2, 4]);
+        assert_tables_eq!(table, vec![2, 4]);
+    }
+
+    #[test]
+    fn append() {
+        let table = lockless::AsLockHandle::<i32>::default();
+        let mut other = vec![1, 2, 3];
+        table.write().unwrap().append(&mut other);
+        assert!(other.is_empty());
+        assert_tables_eq!(table, vec![1, 2, 3]);
     }
 
     #[test]
     fn indirect_type() {
         let table = lockless::AsLockHandle::<Box<i32>>::default();
+        table.write().unwrap().push(Box::new(2));
+        assert_tables_eq!(table, vec![Box::new(2)]);
+    }
 
-        {
-            let mut wg = table.write().unwrap();
-            wg.push(Box::new(2));
-        }
-
-        // When the write guard is dropped it publishes the changes to the readers.
-        assert_eq!(*table.read().unwrap(), vec![Box::new(2)]);
-        assert_eq!(*table.write().unwrap(), vec![Box::new(2)]);
-        assert_eq!(*table.read().unwrap(), vec![Box::new(2)]);
+    #[test]
+    fn reverse() {
+        let table = lockless::AsLockHandle::new(vec![1, 2, 3]);
+        table.write().unwrap().reverse();
+        assert_tables_eq!(table, vec![3, 2, 1]);
     }
 
     #[test]
     fn reserve() {
         let table = lockless::AsLockHandle::<i32>::default();
-
-        {
-            let mut wg = table.write().unwrap();
-            wg.reserve(123);
-        }
+        table.write().unwrap().reserve(123);
 
         assert!(table.read().unwrap().capacity() >= 123);
         assert!(table.write().unwrap().capacity() >= 123);
@@ -450,44 +583,32 @@ mod lockless_test {
     #[test]
     fn reserve_exact() {
         let table = lockless::AsLockHandle::<i32>::default();
-
-        {
-            let mut wg = table.write().unwrap();
-            wg.reserve_exact(123);
-        }
+        table.write().unwrap().reserve_exact(123);
 
         assert_eq!(table.read().unwrap().capacity(), 123);
         assert_eq!(table.write().unwrap().capacity(), 123);
         assert_eq!(table.read().unwrap().capacity(), 123);
     }
 
-    #[test]
-    fn try_reserve() {
-        let table = lockless::AsLockHandle::<i32>::default();
+    // #[test]
+    // fn try_reserve() {
+    //     let table = lockless::AsLockHandle::<i32>::default();
+    //     assert!(table.write().unwrap().try_reserve(123).is_ok());
 
-        {
-            let mut wg = table.write().unwrap();
-            assert!(wg.try_reserve(123).is_ok());
-        }
+    //     assert!(table.read().unwrap().capacity() >= 123);
+    //     assert!(table.write().unwrap().capacity() >= 123);
+    //     assert!(table.read().unwrap().capacity() >= 123);
+    // }
 
-        assert!(table.read().unwrap().capacity() >= 123);
-        assert!(table.write().unwrap().capacity() >= 123);
-        assert!(table.read().unwrap().capacity() >= 123);
-    }
+    // #[test]
+    // fn try_reserve_exact() {
+    //     let table = lockless::AsLockHandle::<i32>::default();
+    //     assert!(table.write().unwrap().try_reserve_exact(123).is_ok());
 
-    #[test]
-    fn try_reserve_exact() {
-        let table = lockless::AsLockHandle::<i32>::default();
-
-        {
-            let mut wg = table.write().unwrap();
-            assert!(wg.try_reserve_exact(123).is_ok());
-        }
-
-        assert_eq!(table.read().unwrap().capacity(), 123);
-        assert_eq!(table.write().unwrap().capacity(), 123);
-        assert_eq!(table.read().unwrap().capacity(), 123);
-    }
+    //     assert_eq!(table.read().unwrap().capacity(), 123);
+    //     assert_eq!(table.write().unwrap().capacity(), 123);
+    //     assert_eq!(table.read().unwrap().capacity(), 123);
+    // }
 
     #[test]
     fn shrink_to_fit() {
@@ -535,9 +656,7 @@ mod lockless_test {
             wg.truncate(3);
         }
 
-        assert_eq!(*table.read().unwrap(), vec![0, 1, 2]);
-        assert_eq!(*table.write().unwrap(), vec![0, 1, 2]);
-        assert_eq!(*table.read().unwrap(), vec![0, 1, 2]);
+        assert_tables_eq!(table, vec![0, 1, 2]);
     }
 
     #[test]
@@ -552,9 +671,7 @@ mod lockless_test {
             assert_eq!(wg.swap_remove(2), 2);
         }
 
-        assert_eq!(*table.read().unwrap(), vec![0, 1, 4, 3]);
-        assert_eq!(*table.write().unwrap(), vec![0, 1, 4, 3]);
-        assert_eq!(*table.read().unwrap(), vec![0, 1, 4, 3]);
+        assert_tables_eq!(table, vec![0, 1, 4, 3]);
     }
 
     #[test]
@@ -569,9 +686,14 @@ mod lockless_test {
             assert_eq!(wg.remove(2), 2);
         }
 
-        assert_eq!(*table.read().unwrap(), vec![0, 1, 3, 4]);
-        assert_eq!(*table.write().unwrap(), vec![0, 1, 3, 4]);
-        assert_eq!(*table.read().unwrap(), vec![0, 1, 3, 4]);
+        assert_tables_eq!(table, vec![0, 1, 3, 4]);
+    }
+
+    #[test]
+    fn extend_from_within() {
+        let table = lockless::AsLockHandle::<i32>::new(vec![1, 2, 3]);
+        table.write().unwrap().extend_from_within(1..);
+        assert_tables_eq!(table, vec![1, 2, 3, 2, 3]);
     }
 
     #[test]
@@ -589,9 +711,7 @@ mod lockless_test {
             assert_eq!(*table2.read().unwrap(), vec![]);
         }
 
-        assert_eq!(*table.read().unwrap(), vec![0, 1, 10, 2, 3, 4]);
-        assert_eq!(*table.write().unwrap(), vec![0, 1, 10, 2, 3, 4]);
-        assert_eq!(*table.read().unwrap(), vec![0, 1, 10, 2, 3, 4]);
+        assert_tables_eq!(table, vec![0, 1, 10, 2, 3, 4]);
     }
 
     #[test]
@@ -606,29 +726,63 @@ mod lockless_test {
             wg.retain(|element| element % 2 == 0);
         }
 
-        assert_eq!(*table.read().unwrap(), vec![0, 2, 4]);
-        assert_eq!(*table.write().unwrap(), vec![0, 2, 4]);
-        assert_eq!(*table.read().unwrap(), vec![0, 2, 4]);
+        assert_tables_eq!(table, vec![0, 2, 4]);
+    }
+
+    #[test]
+    fn resize_with() {
+        let table = lockless::AsLockHandle::<i32>::new(vec![1, 2]);
+        let mut i = 2;
+        table.write().unwrap().resize_with(4, move || {
+            i += 1;
+            i
+        });
+        assert_tables_eq!(table, vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn sort_by() {
+        let table = lockless::AsLockHandle::new(vec![-5, 4, 1, -3, 2]);
+        table
+            .write()
+            .unwrap()
+            .sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_tables_eq!(table, vec![-5, -3, 1, 2, 4]);
+    }
+
+    #[test]
+    fn sort() {
+        let table = lockless::AsLockHandle::new(vec![-5, 4, 1, -3, 2]);
+        table.write().unwrap().sort();
+        assert_tables_eq!(table, vec![-5, -3, 1, 2, 4]);
+    }
+
+    #[test]
+    fn sort_unstable() {
+        let table = lockless::AsLockHandle::new(vec![-5, 4, 1, -3, 2]);
+        table.write().unwrap().sort_unstable();
+        assert_tables_eq!(table, vec![-5, -3, 1, 2, 4]);
+    }
+
+    #[test]
+    fn dedup() {
+        let table = lockless::AsLockHandle::<i32>::new(vec![1, 1, 2, 3, 3, 2]);
+        table.write().unwrap().dedup();
+        assert_tables_eq!(table, vec![1, 2, 3, 2]);
     }
 
     #[test]
     fn dedup_by_key() {
         let table = lockless::AsLockHandle::<i32>::new(vec![1, 1, 2, 3, 3, 2]);
         table.write().unwrap().dedup_by_key(|a| *a);
-
-        assert_eq!(*table.read().unwrap(), vec![1, 2, 3, 2]);
-        assert_eq!(*table.write().unwrap(), vec![1, 2, 3, 2]);
-        assert_eq!(*table.read().unwrap(), vec![1, 2, 3, 2]);
+        assert_tables_eq!(table, vec![1, 2, 3, 2]);
     }
 
     #[test]
     fn dedup_by() {
         let table = lockless::AsLockHandle::<i32>::new(vec![1, 1, 2, 3, 3, 2]);
         table.write().unwrap().dedup_by(|a, b| a == b);
-
-        assert_eq!(*table.read().unwrap(), vec![1, 2, 3, 2]);
-        assert_eq!(*table.write().unwrap(), vec![1, 2, 3, 2]);
-        assert_eq!(*table.read().unwrap(), vec![1, 2, 3, 2]);
+        assert_tables_eq!(table, vec![1, 2, 3, 2]);
     }
 
     #[test]
@@ -643,9 +797,7 @@ mod lockless_test {
             assert_eq!(wg.drain(1..4).collect::<Vec<_>>(), vec![2, 3, 4]);
         }
 
-        assert_eq!(*table.read().unwrap(), vec![1, 5]);
-        assert_eq!(*table.write().unwrap(), vec![1, 5]);
-        assert_eq!(*table.read().unwrap(), vec![1, 5]);
+        assert_tables_eq!(table, vec![1, 5]);
     }
 
     #[test]
@@ -666,9 +818,7 @@ mod lockless_test {
             assert_eq!(swapped, 2);
         }
 
-        assert_eq!(*table.read().unwrap(), vec![1]);
-        assert_eq!(*table.write().unwrap(), vec![1]);
-        assert_eq!(*table.read().unwrap(), vec![1]);
+        assert_tables_eq!(table, vec![1]);
     }
 
     #[test]
@@ -708,18 +858,9 @@ mod lockless_test {
 #[cfg(test)]
 mod shared_test {
     use super::*;
-    use std::fmt::Debug;
+    use crate::assert_tables_eq;
     use std::sync::Arc;
     use std::thread;
-
-    /// Checks that the table matches the expectations. The checks are against:
-    /// RG, WG, RG. This way we get coverage of both RG & WG, as well as both
-    /// tables (by doing WG in the middle we swap for the second RG check).
-    fn check_eq<T: Debug + PartialEq>(table: &shared::AsLock<T>, expected: &Vec<T>) {
-        assert_eq!(*table.read().unwrap(), *expected);
-        assert_eq!(*table.write().unwrap(), *expected);
-        assert_eq!(*table.read().unwrap(), *expected);
-    }
 
     #[test]
     fn push() {
@@ -743,26 +884,24 @@ mod shared_test {
         }
 
         // When the write guard is dropped it publishes the changes to the readers.
-        assert_eq!(*lock1.read().unwrap(), vec![2]);
-        assert_eq!(*lock1.write().unwrap(), vec![2]);
-        assert_eq!(*lock1.read().unwrap(), vec![2]);
+        assert_tables_eq!(lock1, vec![2]);
     }
 
     #[test]
     fn clear() {
-        let aslock = Arc::new(shared::AsLock::<i32>::default());
-        assert_eq!(aslock.read().unwrap().len(), 0);
+        let table = Arc::new(shared::AsLock::<i32>::default());
+        assert_eq!(table.read().unwrap().len(), 0);
 
         {
-            let mut wg = aslock.write().unwrap();
+            let mut wg = table.write().unwrap();
             wg.push(2);
             assert_eq!(wg.len(), 1);
             {
                 // Perform check in another thread to avoid potential deadlock
                 // (calling both read and write on aslock at the same time).
-                let aslock = Arc::clone(&aslock);
+                let table = Arc::clone(&table);
                 thread::spawn(move || {
-                    assert_eq!(aslock.read().unwrap().len(), 0);
+                    assert_eq!(table.read().unwrap().len(), 0);
                 })
                 .join()
                 .unwrap();
@@ -770,14 +909,10 @@ mod shared_test {
         }
 
         // When the write guard is dropped it publishes the changes to the readers.
-        assert_eq!(*aslock.read().unwrap(), vec![2]);
-        assert_eq!(*aslock.write().unwrap(), vec![2]);
-        assert_eq!(*aslock.read().unwrap(), vec![2]);
+        assert_tables_eq!(table, vec![2]);
 
-        aslock.write().unwrap().clear();
-        assert_eq!(*aslock.read().unwrap(), vec![]);
-        assert_eq!(*aslock.write().unwrap(), vec![]);
-        assert_eq!(*aslock.read().unwrap(), vec![]);
+        table.write().unwrap().clear();
+        assert_tables_eq!(table, vec![]);
     }
 
     #[test]
@@ -792,34 +927,36 @@ mod shared_test {
         }
 
         // When the write guard is dropped it publishes the changes to the readers.
-        assert_eq!(*table.read().unwrap(), vec![2, 4]);
-        assert_eq!(*table.write().unwrap(), vec![2, 4]);
-        assert_eq!(*table.read().unwrap(), vec![2, 4]);
+        assert_tables_eq!(table, vec![2, 4]);
+    }
+
+    #[test]
+    fn append() {
+        let table = shared::AsLock::<i32>::default();
+        let mut other = vec![1, 2, 3];
+        table.write().unwrap().append(&mut other);
+        assert!(other.is_empty());
+        assert_tables_eq!(table, vec![1, 2, 3]);
     }
 
     #[test]
     fn indirect_type() {
         let table = shared::AsLock::<Box<i32>>::default();
+        table.write().unwrap().push(Box::new(2));
+        assert_tables_eq!(table, vec![Box::new(2)]);
+    }
 
-        {
-            let mut wg = table.write().unwrap();
-            wg.push(Box::new(2));
-        }
-
-        // When the write guard is dropped it publishes the changes to the readers.
-        assert_eq!(*table.read().unwrap(), vec![Box::new(2)]);
-        assert_eq!(*table.write().unwrap(), vec![Box::new(2)]);
-        assert_eq!(*table.read().unwrap(), vec![Box::new(2)]);
+    #[test]
+    fn reverse() {
+        let table = lockless::AsLockHandle::new(vec![1, 2, 3]);
+        table.write().unwrap().reverse();
+        assert_tables_eq!(table, vec![3, 2, 1]);
     }
 
     #[test]
     fn reserve() {
         let table = Arc::new(shared::AsLock::<i32>::default());
-
-        {
-            let mut wg = table.write().unwrap();
-            wg.reserve(123);
-        }
+        table.write().unwrap().reserve(123);
 
         assert!(table.read().unwrap().capacity() >= 123);
         assert!(table.write().unwrap().capacity() >= 123);
@@ -829,44 +966,32 @@ mod shared_test {
     #[test]
     fn reserve_exact() {
         let table = Arc::new(shared::AsLock::<i32>::default());
-
-        {
-            let mut wg = table.write().unwrap();
-            wg.reserve_exact(123);
-        }
+        table.write().unwrap().reserve_exact(123);
 
         assert_eq!(table.read().unwrap().capacity(), 123);
         assert_eq!(table.write().unwrap().capacity(), 123);
         assert_eq!(table.read().unwrap().capacity(), 123);
     }
 
-    #[test]
-    fn try_reserve() {
-        let table = Arc::new(shared::AsLock::<i32>::default());
+    // #[test]
+    // fn try_reserve() {
+    //     let table = Arc::new(shared::AsLock::<i32>::default());
+    //     assert!(table.write().unwrap().try_reserve(123).is_ok());
 
-        {
-            let mut wg = table.write().unwrap();
-            assert!(wg.try_reserve(123).is_ok());
-        }
+    //     assert!(table.read().unwrap().capacity() >= 123);
+    //     assert!(table.write().unwrap().capacity() >= 123);
+    //     assert!(table.read().unwrap().capacity() >= 123);
+    // }
 
-        assert!(table.read().unwrap().capacity() >= 123);
-        assert!(table.write().unwrap().capacity() >= 123);
-        assert!(table.read().unwrap().capacity() >= 123);
-    }
+    // #[test]
+    // fn try_reserve_exact() {
+    //     let table = Arc::new(shared::AsLock::<i32>::default());
+    //     assert!(table.write().unwrap().try_reserve_exact(123).is_ok());
 
-    #[test]
-    fn try_reserve_exact() {
-        let table = Arc::new(shared::AsLock::<i32>::default());
-
-        {
-            let mut wg = table.write().unwrap();
-            assert!(wg.try_reserve_exact(123).is_ok());
-        }
-
-        assert_eq!(table.read().unwrap().capacity(), 123);
-        assert_eq!(table.write().unwrap().capacity(), 123);
-        assert_eq!(table.read().unwrap().capacity(), 123);
-    }
+    //     assert_eq!(table.read().unwrap().capacity(), 123);
+    //     assert_eq!(table.write().unwrap().capacity(), 123);
+    //     assert_eq!(table.read().unwrap().capacity(), 123);
+    // }
 
     #[test]
     fn shrink_to_fit() {
@@ -906,21 +1031,28 @@ mod shared_test {
     fn truncate() {
         let table = shared::AsLock::<i32>::new(vec![0, 1, 2, 3, 4]);
         table.write().unwrap().truncate(3);
-        crate::assert_tables_eq!(table, vec![0, 1, 2]);
+        assert_tables_eq!(table, vec![0, 1, 2]);
     }
 
     #[test]
     fn swap_remove() {
         let table = shared::AsLock::<i32>::new(vec![0, 1, 2, 3, 4]);
         assert_eq!(table.write().unwrap().swap_remove(2), 2);
-        check_eq(&table, &vec![0, 1, 4, 3]);
+        assert_tables_eq!(table, vec![0, 1, 4, 3]);
     }
 
     #[test]
     fn remove() {
         let table = shared::AsLock::<i32>::new(vec![0, 1, 2, 3, 4]);
         assert_eq!(table.write().unwrap().remove(2), 2);
-        check_eq(&table, &vec![0, 1, 3, 4]);
+        assert_tables_eq!(table, vec![0, 1, 3, 4]);
+    }
+
+    #[test]
+    fn extend_from_within() {
+        let table = shared::AsLock::<i32>::new(vec![1, 2, 3]);
+        table.write().unwrap().extend_from_within(1..);
+        assert_tables_eq!(table, vec![1, 2, 3, 2, 3]);
     }
 
     #[test]
@@ -946,28 +1078,70 @@ mod shared_test {
             }
         }
 
-        check_eq(&table, &vec![0, 1, 10, 2, 3, 4]);
+        assert_tables_eq!(table, vec![0, 1, 10, 2, 3, 4]);
     }
 
     #[test]
     fn retain() {
         let table = shared::AsLock::<i32>::new(vec![0, 1, 2, 3, 4]);
         table.write().unwrap().retain(|element| element % 2 == 0);
-        check_eq(&table, &vec![0, 2, 4]);
+        assert_tables_eq!(table, vec![0, 2, 4]);
+    }
+
+    #[test]
+    fn resize_with() {
+        let table = shared::AsLock::<i32>::new(vec![1, 2]);
+        let mut i = 2;
+        table.write().unwrap().resize_with(4, move || {
+            i += 1;
+            i
+        });
+        assert_tables_eq!(table, vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn sort_by() {
+        let table = shared::AsLock::new(vec![-5, 4, 1, -3, 2]);
+        table
+            .write()
+            .unwrap()
+            .sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_tables_eq!(table, vec![-5, -3, 1, 2, 4]);
+    }
+
+    #[test]
+    fn sort() {
+        let table = shared::AsLock::new(vec![-5, 4, 1, -3, 2]);
+        table.write().unwrap().sort();
+        assert_tables_eq!(table, vec![-5, -3, 1, 2, 4]);
+    }
+
+    #[test]
+    fn sort_unstable() {
+        let table = shared::AsLock::new(vec![-5, 4, 1, -3, 2]);
+        table.write().unwrap().sort_unstable();
+        assert_tables_eq!(table, vec![-5, -3, 1, 2, 4]);
+    }
+
+    #[test]
+    fn dedup() {
+        let table = shared::AsLock::<i32>::new(vec![1, 1, 2, 3, 3, 2]);
+        table.write().unwrap().dedup();
+        assert_tables_eq!(table, vec![1, 2, 3, 2]);
     }
 
     #[test]
     fn dedup_by_key() {
         let table = shared::AsLock::<i32>::new(vec![1, 1, 2, 3, 3, 2]);
         table.write().unwrap().dedup_by_key(|a| *a);
-        check_eq(&table, &vec![1, 2, 3, 2]);
+        assert_tables_eq!(table, vec![1, 2, 3, 2]);
     }
 
     #[test]
     fn dedup_by() {
         let table = shared::AsLock::<i32>::new(vec![1, 1, 2, 3, 3, 2]);
         table.write().unwrap().dedup_by(|a, b| a == b);
-        check_eq(&table, &vec![1, 2, 3, 2]);
+        assert_tables_eq!(table, vec![1, 2, 3, 2]);
     }
 
     #[test]
@@ -977,7 +1151,7 @@ mod shared_test {
             table.write().unwrap().drain(1..4).collect::<Vec<_>>(),
             vec![1, 2, 3]
         );
-        check_eq(&table, &vec![0, 4]);
+        assert_tables_eq!(table, vec![0, 4]);
     }
 
     #[test]
@@ -998,15 +1172,13 @@ mod shared_test {
             assert_eq!(swapped, 2);
         }
 
-        check_eq(&table, &vec![1]);
+        assert_tables_eq!(table, vec![1]);
     }
 
     #[test]
     fn debug_str() {
         let table = Arc::new(shared::AsLock::<i32>::default());
-        {
-            table.write().unwrap().push(12);
-        }
+        table.write().unwrap().push(12);
 
         assert_eq!(
             format!("{:?}", table),
