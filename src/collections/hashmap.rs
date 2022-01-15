@@ -190,6 +190,7 @@ pub mod shared {
 #[cfg(test)]
 mod lockless_test {
     use super::*;
+    use crate::assert_tables_eq;
     use maplit::*;
     use more_asserts::*;
 
@@ -200,28 +201,23 @@ mod lockless_test {
             "world" => 2,
         };
 
-        let table = lockless::AsLockHandle::<&str, i32>::default();
+        let table = lockless::AsLockHandle::default();
         {
             let mut wg = table.write().unwrap();
             wg.insert("hello", 1);
             wg.insert("world", 2);
             assert_eq!(*wg, expected);
         }
-
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+        assert_tables_eq!(table, expected);
     }
 
     #[test]
     fn clear() {
-        let table = lockless::AsLockHandle::<&str, i32>::default();
-        {
-            let mut wg = table.write().unwrap();
-            wg.insert("hello", 1);
-            wg.insert("world", 2);
-            wg.clear();
-        }
+        let table = lockless::AsLockHandle::new(hashmap! {
+            "hello" => 1,
+            "world" => 2,
+        });
+        table.write().unwrap().clear();
 
         assert!(table.read().unwrap().is_empty());
         assert!(table.write().unwrap().is_empty());
@@ -230,53 +226,47 @@ mod lockless_test {
 
     #[test]
     fn remove() {
-        let expected = hashmap! {
+        let table = lockless::AsLockHandle::new(hashmap! {
             "hello" => 1,
-        };
-
-        let table = lockless::AsLockHandle::<&str, i32>::default();
-        {
-            let mut wg = table.write().unwrap();
-            wg.insert("hello", 1);
-            wg.insert("world", 2);
-            assert_eq!(wg.remove("world"), Some(2));
-            assert_eq!(*wg, expected);
-        }
-
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+            "world"=> 2,
+        });
+        assert_eq!(table.write().unwrap().remove("world"), Some(2));
+        assert_tables_eq!(
+            table,
+            hashmap! {
+                "hello" => 1,
+            }
+        );
     }
 
     #[test]
     fn remove_entry() {
-        let expected = hashmap! {
+        let table = lockless::AsLockHandle::new(hashmap! {
             "hello" => 1,
-        };
-
-        let table = lockless::AsLockHandle::<&str, i32>::default();
-        {
-            let mut wg = table.write().unwrap();
-            wg.insert("hello", 1);
-            wg.insert("world", 2);
-            assert_eq!(wg.remove_entry("world"), Some(("world", 2)));
-            assert_eq!(*wg, expected);
-        }
-
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+            "world"=> 2,
+        });
+        assert_eq!(
+            table.write().unwrap().remove_entry("world"),
+            Some(("world", 2))
+        );
+        assert_tables_eq!(
+            table,
+            hashmap! {
+                "hello" => 1,
+            }
+        );
     }
 
     #[test]
     fn shrink_to_fit_and_reserve() {
-        let table = lockless::AsLockHandle::<&str, i32>::default();
+        let table = lockless::AsLockHandle::new(hashmap! {
+            "hello" => 1,
+            "world"=> 2,
+        });
         let initial_capacity;
         let additional = 10;
         {
             let mut wg = table.write().unwrap();
-            wg.insert("hello", 1);
-            wg.insert("world", 2);
             wg.shrink_to_fit();
             initial_capacity = wg.capacity();
             wg.reserve(additional);
@@ -304,7 +294,7 @@ mod lockless_test {
             "world" => 0,
             "my" => 2
         };
-        let table = lockless::AsLockHandle::<&str, i32>::default();
+        let table = lockless::AsLockHandle::default();
         {
             let mut wg = table.write().unwrap();
             wg.insert("hello", 1);
@@ -316,10 +306,7 @@ mod lockless_test {
             wg.retain(|_, &mut v| v % 2 == 0);
             assert_eq!(*wg, expected);
         }
-
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+        assert_tables_eq!(table, expected);
     }
 
     #[test]
@@ -329,17 +316,15 @@ mod lockless_test {
             "world" => 1,
         };
 
-        let table = lockless::AsLockHandle::<&str, i32>::default();
-        {
-            let mut wg = table.write().unwrap();
-            wg.insert("hello", 1);
-            wg.insert("world", 1);
-            assert_eq!(*wg, expected);
-            assert_eq!(
-                wg.drain().collect::<std::collections::HashMap<_, _>>(),
-                expected
-            );
-        }
+        let table = lockless::AsLockHandle::new(expected.clone());
+        assert_eq!(
+            table
+                .write()
+                .unwrap()
+                .drain()
+                .collect::<std::collections::HashMap<_, _>>(),
+            expected
+        );
 
         assert!(table.read().unwrap().is_empty());
         assert!(table.write().unwrap().is_empty());
@@ -348,7 +333,7 @@ mod lockless_test {
 
     #[test]
     fn debug_str() {
-        let table = lockless::AsLockHandle::<i32, i32>::default();
+        let table = lockless::AsLockHandle::default();
         {
             let mut wg = table.write().unwrap();
             wg.insert(12, -1);
@@ -369,6 +354,7 @@ mod lockless_test {
 #[cfg(test)]
 mod shared_test {
     use super::*;
+    use crate::assert_tables_eq;
     use maplit::*;
     use more_asserts::*;
     use std::sync::Arc;
@@ -380,28 +366,23 @@ mod shared_test {
             "world" => 2,
         };
 
-        let table = Arc::new(shared::AsLock::<&str, i32>::default());
+        let table = Arc::new(shared::AsLock::default());
         {
             let mut wg = table.write().unwrap();
             wg.insert("hello", 1);
             wg.insert("world", 2);
             assert_eq!(*wg, expected);
         }
-
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+        assert_tables_eq!(table, expected);
     }
 
     #[test]
     fn clear() {
-        let table = shared::AsLock::<&str, i32>::default();
-        {
-            let mut wg = table.write().unwrap();
-            wg.insert("hello", 1);
-            wg.insert("world", 2);
-            wg.clear();
-        }
+        let table = Arc::new(shared::AsLock::new(hashmap! {
+            "hello" => 1,
+            "world" => 2,
+        }));
+        table.write().unwrap().clear();
 
         assert!(table.read().unwrap().is_empty());
         assert!(table.write().unwrap().is_empty());
@@ -410,53 +391,47 @@ mod shared_test {
 
     #[test]
     fn remove() {
-        let expected = hashmap! {
+        let table = shared::AsLock::new(hashmap! {
             "hello" => 1,
-        };
-
-        let table = shared::AsLock::<&str, i32>::default();
-        {
-            let mut wg = table.write().unwrap();
-            wg.insert("hello", 1);
-            wg.insert("world", 2);
-            assert_eq!(wg.remove("world"), Some(2));
-            assert_eq!(*wg, expected);
-        }
-
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+            "world"=> 2,
+        });
+        assert_eq!(table.write().unwrap().remove("world"), Some(2));
+        assert_tables_eq!(
+            table,
+            hashmap! {
+                "hello" => 1,
+            }
+        );
     }
 
     #[test]
     fn remove_entry() {
-        let expected = hashmap! {
+        let table = shared::AsLock::new(hashmap! {
             "hello" => 1,
-        };
-
-        let table = shared::AsLock::<&str, i32>::default();
-        {
-            let mut wg = table.write().unwrap();
-            wg.insert("hello", 1);
-            wg.insert("world", 2);
-            assert_eq!(wg.remove_entry("world"), Some(("world", 2)));
-            assert_eq!(*wg, expected);
-        }
-
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+            "world"=> 2,
+        });
+        assert_eq!(
+            table.write().unwrap().remove_entry("world"),
+            Some(("world", 2))
+        );
+        assert_tables_eq!(
+            table,
+            hashmap! {
+                "hello" => 1,
+            }
+        );
     }
 
     #[test]
     fn shrink_to_fit_and_reserve() {
-        let table = shared::AsLock::<&str, i32>::default();
+        let table = shared::AsLock::new(hashmap! {
+            "hello" => 1,
+            "world"=> 2,
+        });
         let initial_capacity;
         let additional = 10;
         {
             let mut wg = table.write().unwrap();
-            wg.insert("hello", 1);
-            wg.insert("world", 2);
             wg.shrink_to_fit();
             initial_capacity = wg.capacity();
             wg.reserve(additional);
@@ -484,7 +459,7 @@ mod shared_test {
             "world" => 0,
             "my" => 2
         };
-        let table = shared::AsLock::<&str, i32>::default();
+        let table = shared::AsLock::default();
         {
             let mut wg = table.write().unwrap();
             wg.insert("hello", 1);
@@ -496,10 +471,7 @@ mod shared_test {
             wg.retain(|_, &mut v| v % 2 == 0);
             assert_eq!(*wg, expected);
         }
-
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+        assert_tables_eq!(table, expected);
     }
 
     #[test]
@@ -509,17 +481,15 @@ mod shared_test {
             "world" => 1,
         };
 
-        let table = shared::AsLock::<&str, i32>::default();
-        {
-            let mut wg = table.write().unwrap();
-            wg.insert("hello", 1);
-            wg.insert("world", 1);
-            assert_eq!(*wg, expected);
-            assert_eq!(
-                wg.drain().collect::<std::collections::HashMap<_, _>>(),
-                expected
-            );
-        }
+        let table = shared::AsLock::new(expected.clone());
+        assert_eq!(
+            table
+                .write()
+                .unwrap()
+                .drain()
+                .collect::<std::collections::HashMap<_, _>>(),
+            expected
+        );
 
         assert!(table.read().unwrap().is_empty());
         assert!(table.write().unwrap().is_empty());
@@ -528,7 +498,7 @@ mod shared_test {
 
     #[test]
     fn debug_str() {
-        let table = shared::AsLock::<i32, i32>::default();
+        let table = shared::AsLock::default();
         {
             let mut wg = table.write().unwrap();
             wg.insert(12, -1);

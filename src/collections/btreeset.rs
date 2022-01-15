@@ -197,10 +197,7 @@ mod lockless_test {
             wg.insert("world");
             assert_eq!(*wg, expected);
         }
-
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+        assert_tables_eq!(table, expected);
     }
 
     #[test]
@@ -234,10 +231,7 @@ mod lockless_test {
             assert_eq!(wg.take("I"), None);
             assert_eq!(*wg, expected);
         }
-
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+        assert_tables_eq!(table, expected);
     }
 
     #[test]
@@ -264,10 +258,7 @@ mod lockless_test {
             wg.append(map2);
             assert_eq!(*wg, expected);
         }
-
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+        assert_tables_eq!(table, expected);
     }
 
     #[test]
@@ -330,10 +321,7 @@ mod shared_test {
             wg.insert("world");
             assert_eq!(*wg, expected);
         }
-
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+        assert_tables_eq!(table, expected);
     }
 
     #[test]
@@ -367,10 +355,7 @@ mod shared_test {
             assert_eq!(wg.take("I"), None);
             assert_eq!(*wg, expected);
         }
-
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+        assert_tables_eq!(table, expected);
     }
 
     #[test]
@@ -397,10 +382,7 @@ mod shared_test {
             wg.append(map2);
             assert_eq!(*wg, expected);
         }
-
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+        assert_tables_eq!(table, expected);
     }
 
     #[test]

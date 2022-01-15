@@ -210,6 +210,7 @@ pub mod shared {
 #[cfg(test)]
 mod lockless_test {
     use super::*;
+    use crate::assert_tables_eq;
     use maplit::*;
     use more_asserts::*;
 
@@ -220,29 +221,18 @@ mod lockless_test {
             "world",
         };
 
-        let table = lockless::AsLockHandle::<&str>::default();
-        {
-            let mut wg = table.write().unwrap();
-            wg.insert("hello");
-            wg.insert("world");
-            wg.replace("world");
-            assert_eq!(*wg, expected);
-        }
-
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+        let table = lockless::AsLockHandle::new(expected.clone());
+        table.write().unwrap().replace("world");
+        assert_tables_eq!(table, expected);
     }
 
     #[test]
     fn clear() {
-        let table = lockless::AsLockHandle::<&str>::default();
-        {
-            let mut wg = table.write().unwrap();
-            wg.insert("hello");
-            wg.insert("world");
-            wg.clear();
-        }
+        let table = lockless::AsLockHandle::new(hashset! {
+            "hello" ,
+            "world",
+        });
+        table.write().unwrap().clear();
 
         assert!(table.read().unwrap().is_empty());
         assert!(table.write().unwrap().is_empty());
@@ -266,10 +256,7 @@ mod lockless_test {
             assert_eq!(wg.take("I"), None);
             assert_eq!(*wg, expected);
         }
-
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+        assert_tables_eq!(table, expected);
     }
 
     #[test]
@@ -306,28 +293,24 @@ mod lockless_test {
 
     #[test]
     fn retain() {
-        let expected = hashset! {
-            "joe",
-            "world",
+        let table = lockless::AsLockHandle::new(hashset! {
             "hello",
+            "world",
+            "my",
             "name",
-        };
-        let table = lockless::AsLockHandle::<&str>::default();
-        {
-            let mut wg = table.write().unwrap();
-            wg.insert("hello");
-            wg.insert("world");
-            wg.insert("my");
-            wg.insert("name");
-            wg.insert("is");
-            wg.insert("joe");
-            wg.retain(|&k| k.len() > 2);
-            assert_eq!(*wg, expected);
-        }
-
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+            "is",
+            "joe",
+        });
+        table.write().unwrap().retain(|&k| k.len() > 2);
+        assert_tables_eq!(
+            table,
+            hashset! {
+                "joe",
+                "world",
+                "hello",
+                "name",
+            }
+        );
     }
 
     #[test]
@@ -337,17 +320,15 @@ mod lockless_test {
             "world",
         };
 
-        let table = lockless::AsLockHandle::<&str>::default();
-        {
-            let mut wg = table.write().unwrap();
-            wg.insert("hello");
-            wg.insert("world");
-            assert_eq!(*wg, expected);
-            assert_eq!(
-                wg.drain().collect::<std::collections::HashSet<_>>(),
-                expected
-            );
-        }
+        let table = lockless::AsLockHandle::new(expected.clone());
+        assert_eq!(
+            table
+                .write()
+                .unwrap()
+                .drain()
+                .collect::<std::collections::HashSet<_>>(),
+            expected
+        );
 
         assert!(table.read().unwrap().is_empty());
         assert!(table.write().unwrap().is_empty());
@@ -357,9 +338,7 @@ mod lockless_test {
     #[test]
     fn debug_str() {
         let table = lockless::AsLockHandle::<i32>::default();
-        {
-            table.write().unwrap().insert(12);
-        }
+        table.write().unwrap().insert(12);
 
         assert_eq!(format!("{:?}", table), "AsLockHandle { writer: Writer { num_readers: 1, ops_to_replay: 1, standby_table: {} }, reader: Reader { num_readers: 1, active_table: {12} } }",);
         assert_eq!(
@@ -376,6 +355,7 @@ mod lockless_test {
 #[cfg(test)]
 mod shared_test {
     use super::*;
+    use crate::assert_tables_eq;
     use maplit::*;
     use more_asserts::*;
     use std::sync::Arc;
@@ -387,29 +367,18 @@ mod shared_test {
             "world",
         };
 
-        let table = Arc::new(shared::AsLock::<&str>::default());
-        {
-            let mut wg = table.write().unwrap();
-            wg.insert("hello");
-            wg.insert("world");
-            wg.replace("world");
-            assert_eq!(*wg, expected);
-        }
-
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+        let table = shared::AsLock::new(expected.clone());
+        table.write().unwrap().replace("world");
+        assert_tables_eq!(table, expected);
     }
 
     #[test]
     fn clear() {
-        let table = shared::AsLock::<&str>::default();
-        {
-            let mut wg = table.write().unwrap();
-            wg.insert("hello");
-            wg.insert("world");
-            wg.clear();
-        }
+        let table = Arc::new(shared::AsLock::new(hashset! {
+            "hello" ,
+            "world",
+        }));
+        table.write().unwrap().clear();
 
         assert!(table.read().unwrap().is_empty());
         assert!(table.write().unwrap().is_empty());
@@ -433,10 +402,7 @@ mod shared_test {
             assert_eq!(wg.take("I"), None);
             assert_eq!(*wg, expected);
         }
-
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+        assert_tables_eq!(table, expected);
     }
 
     #[test]
@@ -473,28 +439,24 @@ mod shared_test {
 
     #[test]
     fn retain() {
-        let expected = hashset! {
-            "joe",
-            "world",
+        let table = shared::AsLock::new(hashset! {
             "hello",
+            "world",
+            "my",
             "name",
-        };
-        let table = shared::AsLock::<&str>::default();
-        {
-            let mut wg = table.write().unwrap();
-            wg.insert("hello");
-            wg.insert("world");
-            wg.insert("my");
-            wg.insert("name");
-            wg.insert("is");
-            wg.insert("joe");
-            wg.retain(|&k| k.len() > 2);
-            assert_eq!(*wg, expected);
-        }
-
-        assert_eq!(*table.read().unwrap(), expected);
-        assert_eq!(*table.write().unwrap(), expected);
-        assert_eq!(*table.read().unwrap(), expected);
+            "is",
+            "joe",
+        });
+        table.write().unwrap().retain(|&k| k.len() > 2);
+        assert_tables_eq!(
+            table,
+            hashset! {
+                "joe",
+                "world",
+                "hello",
+                "name",
+            }
+        );
     }
 
     #[test]
@@ -504,17 +466,15 @@ mod shared_test {
             "world",
         };
 
-        let table = shared::AsLock::<&str>::default();
-        {
-            let mut wg = table.write().unwrap();
-            wg.insert("hello");
-            wg.insert("world");
-            assert_eq!(*wg, expected);
-            assert_eq!(
-                wg.drain().collect::<std::collections::HashSet<_>>(),
-                expected
-            );
-        }
+        let table = shared::AsLock::new(expected.clone());
+        assert_eq!(
+            table
+                .write()
+                .unwrap()
+                .drain()
+                .collect::<std::collections::HashSet<_>>(),
+            expected
+        );
 
         assert!(table.read().unwrap().is_empty());
         assert!(table.write().unwrap().is_empty());
@@ -524,9 +484,7 @@ mod shared_test {
     #[test]
     fn debug_str() {
         let table = shared::AsLock::<i32>::default();
-        {
-            table.write().unwrap().insert(12);
-        }
+        table.write().unwrap().insert(12);
 
         assert_eq!(
             format!("{:?}", table),
