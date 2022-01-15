@@ -1,6 +1,3 @@
-/// Implementation of HashSet for use in the active_standby model.
-/// hashset::AsLockHandle<T>, should function similarly to
-/// Arc<RwLock<HashSet<T>>>.
 use crate::primitives::UpdateTables;
 use std::borrow::Borrow;
 use std::collections::HashSet;

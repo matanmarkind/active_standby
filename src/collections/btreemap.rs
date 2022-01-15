@@ -1,6 +1,3 @@
-/// Implementation of BTreeMap for use in the active_standby model.
-/// btreemap::AsLockHandle<K, V>, should function similarly to
-/// Arc<RwLock<BK, VreeMap<K, V>>>.
 use crate::primitives::UpdateTables;
 use std::collections::BTreeMap;
 

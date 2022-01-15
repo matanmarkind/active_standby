@@ -1,6 +1,3 @@
-/// Implementation of BTreeSet for use in the active_standby model.
-/// btreeset::AsLockHandle<T>, should function similarly to
-/// Arc<RwLock<BTreeSet<T>>>.
 use crate::primitives::UpdateTables;
 use std::collections::BTreeSet;
 
@@ -56,6 +53,23 @@ where
     }
 }
 
+struct Retain<F> {
+    f: F,
+}
+
+impl<'a, T, F> UpdateTables<'a, BTreeSet<T>, ()> for Retain<F>
+where
+    T: Ord,
+    F: Clone + FnMut(&T) -> bool,
+{
+    fn apply_first(&mut self, table: &'a mut BTreeSet<T>) {
+        table.retain(self.f.clone())
+    }
+    fn apply_second(self, table: &mut BTreeSet<T>) {
+        table.retain(self.f);
+    }
+}
+
 /// Implementation of BTreeSet for use in the active_standby model.
 /// `lockless::AsLockHandle<T>`, should function similarly to
 /// `Arc<RwLock<BTreeSet<T>>>`.
@@ -99,6 +113,13 @@ pub mod lockless {
 
         pub fn append(&mut self, other: BTreeSet<T>) {
             self.guard.update_tables(Append { other })
+        }
+
+        pub fn retain<F>(&mut self, f: F)
+        where
+            F: 'static + Send + Clone + FnMut(&T) -> bool,
+        {
+            self.guard.update_tables(Retain { f })
         }
     }
 }
@@ -146,12 +167,20 @@ pub mod shared {
         pub fn append(&mut self, other: BTreeSet<T>) {
             self.guard.update_tables(Append { other })
         }
+
+        pub fn retain<F>(&mut self, f: F)
+        where
+            F: 'static + Send + Clone + FnMut(&T) -> bool,
+        {
+            self.guard.update_tables(Retain { f })
+        }
     }
 }
 
 #[cfg(test)]
 mod lockless_test {
     use super::*;
+    use crate::assert_tables_eq;
     use maplit::*;
 
     #[test]
@@ -242,6 +271,23 @@ mod lockless_test {
     }
 
     #[test]
+    fn retain() {
+        let table = lockless::AsLockHandle::new(btreeset! {
+            "hello",
+            "world",
+            "name's",
+            "joe",
+        });
+        table.write().unwrap().retain(|t| t == &"hello");
+        assert_tables_eq!(
+            table,
+            btreeset! {
+                "hello",
+            }
+        );
+    }
+
+    #[test]
     fn debug_str() {
         let table = lockless::AsLockHandle::<i32>::default();
         {
@@ -266,6 +312,7 @@ mod lockless_test {
 #[cfg(test)]
 mod shared_test {
     use super::*;
+    use crate::assert_tables_eq;
     use maplit::*;
     use std::sync::Arc;
 
@@ -354,6 +401,23 @@ mod shared_test {
         assert_eq!(*table.read().unwrap(), expected);
         assert_eq!(*table.write().unwrap(), expected);
         assert_eq!(*table.read().unwrap(), expected);
+    }
+
+    #[test]
+    fn retain() {
+        let table = shared::AsLock::new(btreeset! {
+            "hello",
+            "world",
+            "name's",
+            "joe",
+        });
+        table.write().unwrap().retain(|t| t == &"hello");
+        assert_tables_eq!(
+            table,
+            btreeset! {
+                "hello",
+            }
+        );
     }
 
     #[test]

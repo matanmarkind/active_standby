@@ -1,6 +1,3 @@
-/// Implementation of HashMap for use in the active_standby model.
-/// hashsmap::AsLockHandle<K, V>, should function similarly to
-/// Arc<RwLock<HashMap<K, V>>>.
 use crate::primitives::UpdateTables;
 use std::collections::HashMap;
 use std::hash::Hash;
