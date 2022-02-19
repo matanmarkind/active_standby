@@ -13,7 +13,7 @@ echo_and_run sudo cargo clean
 
 # Rudra seems to need to be run with sudo & the environment variables didn't
 # seem to stick for me locally. Also running it in sudo creates compilation
-# artifacts that can only be cleaned in sudo, so do that here. Run first so that
+# artifacts that can only be cleaned in sudo, so do that here. Run first so
 # that user can fill in the sudo password and then leave it to run.
 echo_and_run sudo RUDRA_RUNNER_HOME=~/rust/Rudra/rudra_runner \
     ~/rust/Rudra/docker-helper/docker-cargo-rudra \
