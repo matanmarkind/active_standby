@@ -265,12 +265,16 @@ mod benchmarks {
             })
             .collect();
 
-        let table2 = table.clone();
-        let _writer_handle = std::thread::spawn(move || loop {
-            let mut wg = table2.write().unwrap();
-            std::thread::sleep(std::time::Duration::from_micros(100));
-            wg.add_one();
-        });
+        let _writer_handles: Vec<_> = (0..2)
+            .map(|_| {
+                let table = table.clone();
+                std::thread::spawn(move || loop {
+                    let mut wg = table.write().unwrap();
+                    std::thread::sleep(std::time::Duration::from_micros(100));
+                    wg.add_one();
+                })
+            })
+            .collect();
 
         b.iter(|| {
             let rg = table.read().unwrap();
@@ -293,12 +297,16 @@ mod benchmarks {
                 })
             })
             .collect();
-        let aslock2 = Arc::clone(&aslock);
-        let _writer_handle = std::thread::spawn(move || loop {
-            let mut wg = aslock2.write().unwrap();
-            std::thread::sleep(std::time::Duration::from_micros(100));
-            wg.add_one();
-        });
+        let _writer_handles: Vec<_> = (0..2)
+            .map(|_| {
+                let aslock = Arc::clone(&aslock);
+                std::thread::spawn(move || loop {
+                    let mut wg = aslock.write().unwrap();
+                    std::thread::sleep(std::time::Duration::from_micros(100));
+                    wg.add_one();
+                })
+            })
+            .collect();
 
         b.iter(|| {
             let rg = aslock.read().unwrap();
@@ -322,14 +330,16 @@ mod benchmarks {
             })
             .collect();
 
-        let _writer_handle = {
-            let table = Arc::clone(&table);
-            std::thread::spawn(move || loop {
-                let mut wg = table.write().unwrap();
-                std::thread::sleep(std::time::Duration::from_micros(100));
-                *wg += 1;
-            });
-        };
+        let _writer_handles: Vec<_> = (0..2)
+            .map(|_| {
+                let table = Arc::clone(&table);
+                std::thread::spawn(move || loop {
+                    let mut wg = table.write().unwrap();
+                    std::thread::sleep(std::time::Duration::from_micros(100));
+                    *wg += 1;
+                })
+            })
+            .collect();
 
         b.iter(|| {
             let rg = table.read().unwrap();
