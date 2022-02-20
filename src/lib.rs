@@ -109,13 +109,13 @@
 //!     let table = lockless::AsLockHandle::new(0);
 //!     let table2 = table.clone();
 //!     let handle = std::thread::spawn(move || {
-//!         while *table2.read().unwrap() != 1 {
+//!         while *table2.read() != 1 {
 //!             sleep(Duration::from_micros(100));
 //!         }
 //!     });
 //!
 //!     {
-//!         let mut wg = table.write().unwrap();
+//!         let mut wg = table.write();
 //!         wg.add_one();
 //!     }
 //!     handle.join();
@@ -125,13 +125,13 @@
 //!     let table = Arc::new(shared::AsLock::new(0));
 //!     let table2 = Arc::clone(&table);
 //!     let handle = std::thread::spawn(move || {
-//!         while *table2.read().unwrap() != 1 {
+//!         while *table2.read() != 1 {
 //!             sleep(Duration::from_micros(100));
 //!         }
 //!     });
 //!
 //!     {
-//!         let mut wg = table.write().unwrap();
+//!         let mut wg = table.write();
 //!         wg.add_one();
 //!     }
 //!     handle.join();
@@ -174,14 +174,14 @@
 //!
 //! fn main() {
 //!     let table = AsLock::<Vec<Arc<i32>>>::default();
-//!     table.write().unwrap().update_tables_closure(
+//!     table.write().update_tables_closure(
 //!         |table| table.push(Arc::new(1))
 //!     );
-//!     table.write().unwrap().update_tables(UpdateVal {
+//!     table.write().update_tables(UpdateVal {
 //!         index: 0,
 //!         val: Arc::new(2)
 //!     });
-//!     assert_eq!(*table.read().unwrap(), vec![Arc::new(2)]);
+//!     assert_eq!(*table.read(), vec![Arc::new(2)]);
 //! }
 //! ```
 //!
@@ -214,7 +214,7 @@ mod shared;
 /// struct using one of the macros and then just implement the mutations for the
 /// generated WriteGuard (see collections for examples).
 pub mod primitives {
-    pub use crate::types::{LockResult, UpdateTables};
+    pub use crate::types::UpdateTables;
     pub mod lockless {
         pub use crate::lockless::aslockhandle::AsLockHandle;
         pub use crate::lockless::read::ReadGuard;

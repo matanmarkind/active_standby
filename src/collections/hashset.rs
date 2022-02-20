@@ -222,7 +222,7 @@ mod lockless_test {
         };
 
         let table = lockless::AsLockHandle::new(expected.clone());
-        table.write().unwrap().replace("world");
+        table.write().replace("world");
         assert_tables_eq!(table, expected);
     }
 
@@ -232,11 +232,11 @@ mod lockless_test {
             "hello" ,
             "world",
         });
-        table.write().unwrap().clear();
+        table.write().clear();
 
-        assert!(table.read().unwrap().is_empty());
-        assert!(table.write().unwrap().is_empty());
-        assert!(table.read().unwrap().is_empty());
+        assert!(table.read().is_empty());
+        assert!(table.write().is_empty());
+        assert!(table.read().is_empty());
     }
 
     #[test]
@@ -247,7 +247,7 @@ mod lockless_test {
 
         let table = lockless::AsLockHandle::<&str>::new(std::collections::HashSet::new());
         {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.insert("hello");
             wg.insert("world");
             wg.insert("I");
@@ -268,7 +268,7 @@ mod lockless_test {
         let initial_capacity;
         let additional = 10;
         {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.insert("hello");
             wg.insert("world");
             wg.shrink_to_fit();
@@ -277,18 +277,9 @@ mod lockless_test {
             assert_ge!(wg.capacity(), initial_capacity + additional);
         }
 
-        assert_ge!(
-            table.read().unwrap().capacity(),
-            initial_capacity + additional
-        );
-        assert_ge!(
-            table.write().unwrap().capacity(),
-            initial_capacity + additional
-        );
-        assert_ge!(
-            table.read().unwrap().capacity(),
-            initial_capacity + additional
-        );
+        assert_ge!(table.read().capacity(), initial_capacity + additional);
+        assert_ge!(table.write().capacity(), initial_capacity + additional);
+        assert_ge!(table.read().capacity(), initial_capacity + additional);
     }
 
     #[test]
@@ -301,7 +292,7 @@ mod lockless_test {
             "is",
             "joe",
         });
-        table.write().unwrap().retain(|&k| k.len() > 2);
+        table.write().retain(|&k| k.len() > 2);
         assert_tables_eq!(
             table,
             hashset! {
@@ -324,30 +315,29 @@ mod lockless_test {
         assert_eq!(
             table
                 .write()
-                .unwrap()
                 .drain()
                 .collect::<std::collections::HashSet<_>>(),
             expected
         );
 
-        assert!(table.read().unwrap().is_empty());
-        assert!(table.write().unwrap().is_empty());
-        assert!(table.read().unwrap().is_empty());
+        assert!(table.read().is_empty());
+        assert!(table.write().is_empty());
+        assert!(table.read().is_empty());
     }
 
     #[test]
     fn debug_str() {
         let table = lockless::AsLockHandle::<i32>::default();
-        table.write().unwrap().insert(12);
+        table.write().insert(12);
 
         assert_eq!(format!("{:?}", table), "AsLockHandle { writer: Writer { num_readers: 1, ops_to_replay: 1, standby_table: {} }, reader: Reader { num_readers: 1, active_table: {12} } }",);
         assert_eq!(
-            format!("{:?}", table.write().unwrap()),
+            format!("{:?}", table.write()),
             "WriteGuard { swap_active_and_standby: true, num_readers: 1, ops_to_replay: 0, standby_table: {12} }",
         );
         assert_eq!(
-            format!("{:?}", table.read().unwrap()),
-            "ReadGuard { active_table: {12} }",
+            format!("{:?}", table.read()),
+            "{12}",
         );
     }
 }
@@ -368,7 +358,7 @@ mod shared_test {
         };
 
         let table = shared::AsLock::new(expected.clone());
-        table.write().unwrap().replace("world");
+        table.write().replace("world");
         assert_tables_eq!(table, expected);
     }
 
@@ -378,11 +368,11 @@ mod shared_test {
             "hello" ,
             "world",
         }));
-        table.write().unwrap().clear();
+        table.write().clear();
 
-        assert!(table.read().unwrap().is_empty());
-        assert!(table.write().unwrap().is_empty());
-        assert!(table.read().unwrap().is_empty());
+        assert!(table.read().is_empty());
+        assert!(table.write().is_empty());
+        assert!(table.read().is_empty());
     }
 
     #[test]
@@ -393,7 +383,7 @@ mod shared_test {
 
         let table = shared::AsLock::<&str>::new(std::collections::HashSet::new());
         {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.insert("hello");
             wg.insert("world");
             wg.insert("I");
@@ -414,7 +404,7 @@ mod shared_test {
         let initial_capacity;
         let additional = 10;
         {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.insert("hello");
             wg.insert("world");
             wg.shrink_to_fit();
@@ -423,18 +413,9 @@ mod shared_test {
             assert_ge!(wg.capacity(), initial_capacity + additional);
         }
 
-        assert_ge!(
-            table.read().unwrap().capacity(),
-            initial_capacity + additional
-        );
-        assert_ge!(
-            table.write().unwrap().capacity(),
-            initial_capacity + additional
-        );
-        assert_ge!(
-            table.read().unwrap().capacity(),
-            initial_capacity + additional
-        );
+        assert_ge!(table.read().capacity(), initial_capacity + additional);
+        assert_ge!(table.write().capacity(), initial_capacity + additional);
+        assert_ge!(table.read().capacity(), initial_capacity + additional);
     }
 
     #[test]
@@ -447,7 +428,7 @@ mod shared_test {
             "is",
             "joe",
         });
-        table.write().unwrap().retain(|&k| k.len() > 2);
+        table.write().retain(|&k| k.len() > 2);
         assert_tables_eq!(
             table,
             hashset! {
@@ -470,33 +451,29 @@ mod shared_test {
         assert_eq!(
             table
                 .write()
-                .unwrap()
                 .drain()
                 .collect::<std::collections::HashSet<_>>(),
             expected
         );
 
-        assert!(table.read().unwrap().is_empty());
-        assert!(table.write().unwrap().is_empty());
-        assert!(table.read().unwrap().is_empty());
+        assert!(table.read().is_empty());
+        assert!(table.write().is_empty());
+        assert!(table.read().is_empty());
     }
 
     #[test]
     fn debug_str() {
         let table = shared::AsLock::<i32>::default();
-        table.write().unwrap().insert(12);
+        table.write().insert(12);
 
         assert_eq!(
             format!("{:?}", table),
             "AsLock { num_ops_to_replay: 1, active_table: {12} }",
         );
         assert_eq!(
-            format!("{:?}", table.write().unwrap()),
+            format!("{:?}", table.write()),
             "WriteGuard { num_ops_to_replay: 0, standby_table: {12} }",
         );
-        assert_eq!(
-            format!("{:?}", table.read().unwrap()),
-            "ShardedLockReadGuard { lock: ShardedLock { data: {12} } }",
-        );
+        assert_eq!(format!("{:?}", table.read()), "{12}",);
     }
 }

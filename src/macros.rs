@@ -86,6 +86,7 @@ macro_rules! generate_lockless_aslockhandle {
         // AsLockHandle needs to be a new struct, because we need to "override"
         // the inner call to 'write' so that it will produce the new WriteGuard
         // type that is defined here.
+        #[derive(Default, Clone)]
         pub struct AsLockHandle$(< $($Inner),* >)? {
             inner: AsLockHandleAlias$(< $($Inner),* >)?,
         }
@@ -100,15 +101,10 @@ macro_rules! generate_lockless_aslockhandle {
                 }
             }
 
-            pub fn write(&self) -> $crate::primitives::LockResult<WriteGuard<'_, $($($Inner),*)?>> {
+            pub fn write(&self) -> WriteGuard<'_, $($($Inner),*)?> {
                 // Type conversion from generic WriteGuard to the generated WriteGuard.
-                match self.inner.write() {
-                    Ok(g) => Ok(WriteGuard {
-                        guard: g
-                    }),
-                    Err(g) => Err(std::sync::PoisonError::new(
-                        WriteGuard { guard: g.into_inner() }
-                    ))
+                WriteGuard {
+                    guard: self.inner.write()
                 }
             }
         }
@@ -124,17 +120,6 @@ macro_rules! generate_lockless_aslockhandle {
             }
         }
 
-        impl$(< $($Inner),* >)? Default for AsLockHandle$(< $($Inner),* >)?
-        where
-            $Table$(<$($Inner),*>)? : Default,
-        {
-            fn default() -> AsLockHandle$(<$($Inner),*>)? {
-                AsLockHandle {
-                    inner: AsLockHandleAlias::from_identical($Table::default(), $Table::default())
-                }
-            }
-        }
-
         impl$(< $($Inner),* >)? std::ops::Deref  for AsLockHandle$(< $($Inner),* >)? {
             type Target = AsLockHandleAlias$(< $($Inner),* >)?;
             fn deref(&self) -> &Self::Target {
@@ -142,19 +127,12 @@ macro_rules! generate_lockless_aslockhandle {
             }
         }
 
+        // Impl locally to make this wrapper transparent.
         impl$(< $($Inner),* >)? std::fmt::Debug  for AsLockHandle$(< $($Inner),* >)?
             where $Table$(<$($Inner),*>)? : std::fmt::Debug,
         {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 self.inner.fmt(f)
-            }
-        }
-
-        impl$(< $($Inner),* >)? Clone for AsLockHandle$(< $($Inner),* >)? {
-            fn clone(&self) -> AsLockHandle$(<$($Inner),*>)? {
-                AsLockHandle {
-                    inner: self.inner.clone(),
-                }
             }
         }
     }
@@ -222,6 +200,7 @@ macro_rules! generate_shared_aslock {
         // type that is defined here. Note that AsLock is not identical to
         // AsLockHandle. For instance there is no Clone for AsLock, since it is
         // meant to be behind an Arc.
+        #[derive(Default)]
         pub struct AsLock$(< $($Inner),* >)? {
             inner: AsLockAlias$(< $($Inner),* >)?,
         }
@@ -236,14 +215,9 @@ macro_rules! generate_shared_aslock {
                 }
             }
 
-            pub fn write(&self) -> $crate::primitives::LockResult<WriteGuard<'_, $($($Inner),*)?>> {
-                match self.inner.write() {
-                    Ok(guard) => Ok(WriteGuard {
-                        guard
-                    }),
-                    Err(g) => Err(std::sync::PoisonError::new(
-                        WriteGuard { guard: g.into_inner() }
-                    ))
+            pub fn write(&self) -> WriteGuard<'_, $($($Inner),*)?> {
+                WriteGuard {
+                    guard: self.inner.write()
                 }
             }
         }
@@ -255,17 +229,6 @@ macro_rules! generate_shared_aslock {
             pub fn new(t: $Table $(< $($Inner),* >)?) -> AsLock$(<$($Inner),*>)? {
                 AsLock {
                     inner: AsLockAlias::new(t)
-                }
-            }
-        }
-
-        impl$(< $($Inner),* >)? Default for AsLock$(< $($Inner),* >)?
-        where
-            $Table$(<$($Inner),*>)? : Default,
-        {
-            fn default() -> AsLock$(<$($Inner),*>)? {
-                AsLock {
-                    inner: AsLockAlias::default()
                 }
             }
         }
@@ -302,8 +265,8 @@ macro_rules! generate_shared_aslock {
 #[macro_export]
 macro_rules! assert_tables_eq {
     ($table:expr, $expected:expr) => {
-        assert_eq!(*$table.read().unwrap(), $expected);
-        assert_eq!(*$table.write().unwrap(), $expected);
-        assert_eq!(*$table.read().unwrap(), $expected);
+        assert_eq!(*$table.read(), $expected);
+        assert_eq!(*$table.write(), $expected);
+        assert_eq!(*$table.read(), $expected);
     };
 }

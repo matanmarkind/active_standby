@@ -1,20 +1,10 @@
-// Loom & crossbeam return the std PoisonError, so no need to use conditional
-// compilation.
-pub type LockResult<Guard> = Result<Guard, std::sync::PoisonError<Guard>>;
-
 // Conditional compilation for using loom.
 #[cfg(loom)]
 pub(crate) use loom::hint::spin_loop;
 #[cfg(loom)]
 pub(crate) use loom::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 #[cfg(loom)]
-pub(crate) use loom::sync::{Arc, Mutex, MutexGuard};
-#[cfg(loom)]
-pub type RwLock<T> = loom::sync::RwLock<T>;
-#[cfg(loom)]
-pub type RwLockReadGuard<'r, T> = loom::sync::RwLockReadGuard<'r, T>;
-#[cfg(loom)]
-pub type RwLockWriteGuard<'w, T> = loom::sync::RwLockWriteGuard<'w, T>;
+pub(crate) use loom::sync::Arc;
 #[cfg(loom)]
 pub(crate) fn fence(ord: Ordering) {
     if let Ordering::Acquire = ord {
@@ -34,13 +24,78 @@ pub(crate) use std::hint::spin_loop;
 #[cfg(not(loom))]
 pub(crate) use std::sync::atomic::{fence, AtomicPtr, AtomicUsize, Ordering};
 #[cfg(not(loom))]
-pub(crate) use std::sync::{Arc, Mutex, MutexGuard};
+pub(crate) use std::sync::Arc;
+
+// Wrap Mutex since loom and parking_lot have different APIs (loom poisons on error).
+#[cfg(loom)]
+pub(crate) type InnerMutex<T> = loom::sync::Mutex<T>;
+#[cfg(loom)]
+pub(crate) type MutexGuard<'a, T> = loom::sync::MutexGuard<'a, T>;
 #[cfg(not(loom))]
-pub type RwLock<T> = crossbeam::sync::ShardedLock<T>;
+pub(crate) type InnerMutex<T> = parking_lot::Mutex<T>;
 #[cfg(not(loom))]
-pub type RwLockReadGuard<'r, T> = crossbeam::sync::ShardedLockReadGuard<'r, T>;
+pub(crate) type MutexGuard<'a, T> = parking_lot::MutexGuard<'a, T>;
+
+#[derive(Default)]
+pub(crate) struct Mutex<T> {
+    inner: InnerMutex<T>,
+}
+
+impl<T> Mutex<T> {
+    pub fn lock(&self) -> MutexGuard<'_, T> {
+        #[cfg(loom)]
+        return self.inner.lock().unwrap();
+        #[cfg(not(loom))]
+        return self.inner.lock();
+    }
+
+    pub fn new(t: T) -> Mutex<T> {
+        Mutex {
+            inner: InnerMutex::new(t),
+        }
+    }
+}
+
+// Wrap RwLock since loom and parking_lot have different APIs (loom poisons on error).
+#[cfg(loom)]
+pub type InnerRwLock<T> = loom::sync::RwLock<T>;
+#[cfg(loom)]
+pub type RwLockReadGuard<'r, T> = loom::sync::RwLockReadGuard<'r, T>;
+#[cfg(loom)]
+pub type RwLockWriteGuard<'w, T> = loom::sync::RwLockWriteGuard<'w, T>;
 #[cfg(not(loom))]
-pub type RwLockWriteGuard<'w, T> = crossbeam::sync::ShardedLockWriteGuard<'w, T>;
+pub type InnerRwLock<T> = parking_lot::RwLock<T>;
+#[cfg(not(loom))]
+pub type RwLockReadGuard<'r, T> = parking_lot::RwLockReadGuard<'r, T>;
+#[cfg(not(loom))]
+pub type RwLockWriteGuard<'w, T> = parking_lot::RwLockWriteGuard<'w, T>;
+
+#[derive(Default)]
+pub struct RwLock<T> {
+    inner: InnerRwLock<T>,
+}
+
+impl<T> RwLock<T> {
+    pub fn read(&self) -> RwLockReadGuard<'_, T> {
+        #[cfg(loom)]
+        return self.inner.read().unwrap();
+        #[cfg(not(loom))]
+        return self.inner.read();
+    }
+
+    pub fn write(&self) -> RwLockWriteGuard<'_, T> {
+        #[cfg(loom)]
+        return self.inner.write().unwrap();
+        #[cfg(not(loom))]
+        return self.inner.write();
+    }
+
+    pub fn new(t: T) -> RwLock<T> {
+        RwLock {
+            inner: InnerRwLock::new(t),
+        }
+    }
+}
 
 /// Operations that update underlying data. Users mutate the tables by
 /// implementing this trait for each function to be performed on the tables. For

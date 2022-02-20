@@ -203,7 +203,7 @@ mod lockless_test {
 
         let table = lockless::AsLockHandle::default();
         {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.insert("hello", 1);
             wg.insert("world", 2);
             assert_eq!(*wg, expected);
@@ -217,11 +217,11 @@ mod lockless_test {
             "hello" => 1,
             "world" => 2,
         });
-        table.write().unwrap().clear();
+        table.write().clear();
 
-        assert!(table.read().unwrap().is_empty());
-        assert!(table.write().unwrap().is_empty());
-        assert!(table.read().unwrap().is_empty());
+        assert!(table.read().is_empty());
+        assert!(table.write().is_empty());
+        assert!(table.read().is_empty());
     }
 
     #[test]
@@ -230,7 +230,7 @@ mod lockless_test {
             "hello" => 1,
             "world"=> 2,
         });
-        assert_eq!(table.write().unwrap().remove("world"), Some(2));
+        assert_eq!(table.write().remove("world"), Some(2));
         assert_tables_eq!(
             table,
             hashmap! {
@@ -245,10 +245,7 @@ mod lockless_test {
             "hello" => 1,
             "world"=> 2,
         });
-        assert_eq!(
-            table.write().unwrap().remove_entry("world"),
-            Some(("world", 2))
-        );
+        assert_eq!(table.write().remove_entry("world"), Some(("world", 2)));
         assert_tables_eq!(
             table,
             hashmap! {
@@ -266,25 +263,16 @@ mod lockless_test {
         let initial_capacity;
         let additional = 10;
         {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.shrink_to_fit();
             initial_capacity = wg.capacity();
             wg.reserve(additional);
             assert_ge!(wg.capacity(), initial_capacity + additional);
         }
 
-        assert_ge!(
-            table.read().unwrap().capacity(),
-            initial_capacity + additional
-        );
-        assert_ge!(
-            table.write().unwrap().capacity(),
-            initial_capacity + additional
-        );
-        assert_ge!(
-            table.read().unwrap().capacity(),
-            initial_capacity + additional
-        );
+        assert_ge!(table.read().capacity(), initial_capacity + additional);
+        assert_ge!(table.write().capacity(), initial_capacity + additional);
+        assert_ge!(table.read().capacity(), initial_capacity + additional);
     }
 
     #[test]
@@ -296,7 +284,7 @@ mod lockless_test {
         };
         let table = lockless::AsLockHandle::default();
         {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.insert("hello", 1);
             wg.insert("world", 0);
             wg.insert("my", 2);
@@ -320,34 +308,30 @@ mod lockless_test {
         assert_eq!(
             table
                 .write()
-                .unwrap()
                 .drain()
                 .collect::<std::collections::HashMap<_, _>>(),
             expected
         );
 
-        assert!(table.read().unwrap().is_empty());
-        assert!(table.write().unwrap().is_empty());
-        assert!(table.read().unwrap().is_empty());
+        assert!(table.read().is_empty());
+        assert!(table.write().is_empty());
+        assert!(table.read().is_empty());
     }
 
     #[test]
     fn debug_str() {
         let table = lockless::AsLockHandle::default();
         {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.insert(12, -1);
         }
 
         assert_eq!(format!("{:?}", table), "AsLockHandle { writer: Writer { num_readers: 1, ops_to_replay: 1, standby_table: {} }, reader: Reader { num_readers: 1, active_table: {12: -1} } }");
         assert_eq!(
-            format!("{:?}", table.write().unwrap()),
+            format!("{:?}", table.write()),
             "WriteGuard { swap_active_and_standby: true, num_readers: 1, ops_to_replay: 0, standby_table: {12: -1} }",
         );
-        assert_eq!(
-            format!("{:?}", table.read().unwrap()),
-            "ReadGuard { active_table: {12: -1} }",
-        );
+        assert_eq!(format!("{:?}", table.read()), "{12: -1}",);
     }
 }
 
@@ -368,7 +352,7 @@ mod shared_test {
 
         let table = Arc::new(shared::AsLock::default());
         {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.insert("hello", 1);
             wg.insert("world", 2);
             assert_eq!(*wg, expected);
@@ -382,11 +366,11 @@ mod shared_test {
             "hello" => 1,
             "world" => 2,
         }));
-        table.write().unwrap().clear();
+        table.write().clear();
 
-        assert!(table.read().unwrap().is_empty());
-        assert!(table.write().unwrap().is_empty());
-        assert!(table.read().unwrap().is_empty());
+        assert!(table.read().is_empty());
+        assert!(table.write().is_empty());
+        assert!(table.read().is_empty());
     }
 
     #[test]
@@ -395,7 +379,7 @@ mod shared_test {
             "hello" => 1,
             "world"=> 2,
         });
-        assert_eq!(table.write().unwrap().remove("world"), Some(2));
+        assert_eq!(table.write().remove("world"), Some(2));
         assert_tables_eq!(
             table,
             hashmap! {
@@ -410,10 +394,7 @@ mod shared_test {
             "hello" => 1,
             "world"=> 2,
         });
-        assert_eq!(
-            table.write().unwrap().remove_entry("world"),
-            Some(("world", 2))
-        );
+        assert_eq!(table.write().remove_entry("world"), Some(("world", 2)));
         assert_tables_eq!(
             table,
             hashmap! {
@@ -431,25 +412,16 @@ mod shared_test {
         let initial_capacity;
         let additional = 10;
         {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.shrink_to_fit();
             initial_capacity = wg.capacity();
             wg.reserve(additional);
             assert_ge!(wg.capacity(), initial_capacity + additional);
         }
 
-        assert_ge!(
-            table.read().unwrap().capacity(),
-            initial_capacity + additional
-        );
-        assert_ge!(
-            table.write().unwrap().capacity(),
-            initial_capacity + additional
-        );
-        assert_ge!(
-            table.read().unwrap().capacity(),
-            initial_capacity + additional
-        );
+        assert_ge!(table.read().capacity(), initial_capacity + additional);
+        assert_ge!(table.write().capacity(), initial_capacity + additional);
+        assert_ge!(table.read().capacity(), initial_capacity + additional);
     }
 
     #[test]
@@ -461,7 +433,7 @@ mod shared_test {
         };
         let table = shared::AsLock::default();
         {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.insert("hello", 1);
             wg.insert("world", 0);
             wg.insert("my", 2);
@@ -485,22 +457,21 @@ mod shared_test {
         assert_eq!(
             table
                 .write()
-                .unwrap()
                 .drain()
                 .collect::<std::collections::HashMap<_, _>>(),
             expected
         );
 
-        assert!(table.read().unwrap().is_empty());
-        assert!(table.write().unwrap().is_empty());
-        assert!(table.read().unwrap().is_empty());
+        assert!(table.read().is_empty());
+        assert!(table.write().is_empty());
+        assert!(table.read().is_empty());
     }
 
     #[test]
     fn debug_str() {
         let table = shared::AsLock::default();
         {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.insert(12, -1);
         }
 
@@ -509,12 +480,9 @@ mod shared_test {
             "AsLock { num_ops_to_replay: 1, active_table: {12: -1} }",
         );
         assert_eq!(
-            format!("{:?}", table.write().unwrap()),
+            format!("{:?}", table.write()),
             "WriteGuard { num_ops_to_replay: 0, standby_table: {12: -1} }",
         );
-        assert_eq!(
-            format!("{:?}", table.read().unwrap()),
-            "ShardedLockReadGuard { lock: ShardedLock { data: {12: -1} } }",
-        );
+        assert_eq!(format!("{:?}", table.read()), "{12: -1}",);
     }
 }

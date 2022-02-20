@@ -192,7 +192,7 @@ mod lockless_test {
 
         let table = lockless::AsLockHandle::<&str>::default();
         {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.insert("hello");
             wg.insert("world");
             assert_eq!(*wg, expected);
@@ -204,15 +204,15 @@ mod lockless_test {
     fn clear() {
         let table = lockless::AsLockHandle::<&str>::default();
         {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.insert("hello");
             wg.insert("world");
             wg.clear();
         }
 
-        assert!(table.read().unwrap().is_empty());
-        assert!(table.write().unwrap().is_empty());
-        assert!(table.read().unwrap().is_empty());
+        assert!(table.read().is_empty());
+        assert!(table.write().is_empty());
+        assert!(table.read().is_empty());
     }
 
     #[test]
@@ -222,7 +222,7 @@ mod lockless_test {
         };
         let table = lockless::AsLockHandle::<&str>::default();
         {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.insert("hello");
             wg.insert("world");
             wg.insert("I");
@@ -253,7 +253,7 @@ mod lockless_test {
                 "name's" ,
                 "joe" ,
             };
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.append(map1);
             wg.append(map2);
             assert_eq!(*wg, expected);
@@ -269,7 +269,7 @@ mod lockless_test {
             "name's",
             "joe",
         });
-        table.write().unwrap().retain(|t| t == &"hello");
+        table.write().retain(|t| t == &"hello");
         assert_tables_eq!(
             table,
             btreeset! {
@@ -282,7 +282,7 @@ mod lockless_test {
     fn debug_str() {
         let table = lockless::AsLockHandle::<i32>::default();
         {
-            table.write().unwrap().insert(12);
+            table.write().insert(12);
         }
 
         assert_eq!(
@@ -290,12 +290,12 @@ mod lockless_test {
             "AsLockHandle { writer: Writer { num_readers: 1, ops_to_replay: 1, standby_table: {} }, reader: Reader { num_readers: 1, active_table: {12} } }"
         );
         assert_eq!(
-            format!("{:?}", table.write().unwrap()),
+            format!("{:?}", table.write()),
             "WriteGuard { swap_active_and_standby: true, num_readers: 1, ops_to_replay: 0, standby_table: {12} }",
         );
         assert_eq!(
-            format!("{:?}", table.read().unwrap()),
-            "ReadGuard { active_table: {12} }",
+            format!("{:?}", table.read()),
+            "{12}",
         );
     }
 }
@@ -316,7 +316,7 @@ mod shared_test {
 
         let table = Arc::new(shared::AsLock::<&str>::default());
         {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.insert("hello");
             wg.insert("world");
             assert_eq!(*wg, expected);
@@ -328,15 +328,15 @@ mod shared_test {
     fn clear() {
         let table = shared::AsLock::<&str>::default();
         {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.insert("hello");
             wg.insert("world");
             wg.clear();
         }
 
-        assert!(table.read().unwrap().is_empty());
-        assert!(table.write().unwrap().is_empty());
-        assert!(table.read().unwrap().is_empty());
+        assert!(table.read().is_empty());
+        assert!(table.write().is_empty());
+        assert!(table.read().is_empty());
     }
 
     #[test]
@@ -346,7 +346,7 @@ mod shared_test {
         };
         let table = shared::AsLock::<&str>::default();
         {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.insert("hello");
             wg.insert("world");
             wg.insert("I");
@@ -377,7 +377,7 @@ mod shared_test {
                 "name's" ,
                 "joe" ,
             };
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.append(map1);
             wg.append(map2);
             assert_eq!(*wg, expected);
@@ -393,7 +393,7 @@ mod shared_test {
             "name's",
             "joe",
         });
-        table.write().unwrap().retain(|t| t == &"hello");
+        table.write().retain(|t| t == &"hello");
         assert_tables_eq!(
             table,
             btreeset! {
@@ -406,7 +406,7 @@ mod shared_test {
     fn debug_str() {
         let table = shared::AsLock::<i32>::default();
         {
-            table.write().unwrap().insert(12);
+            table.write().insert(12);
         }
 
         assert_eq!(
@@ -414,12 +414,12 @@ mod shared_test {
             "AsLock { num_ops_to_replay: 1, active_table: {12} }",
         );
         assert_eq!(
-            format!("{:?}", table.write().unwrap()),
+            format!("{:?}", table.write()),
             "WriteGuard { num_ops_to_replay: 0, standby_table: {12} }",
         );
         assert_eq!(
-            format!("{:?}", table.read().unwrap()),
-            "ShardedLockReadGuard { lock: ShardedLock { data: {12} } }",
+            format!("{:?}", table.read()),
+            "{12}",
         );
     }
 }

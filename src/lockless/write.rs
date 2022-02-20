@@ -45,7 +45,7 @@ where
         // See comments on `Table::standby_table` for safety.
         let standby_table = unsafe { self.table.standby_table() };
         f.debug_struct("InnerWriter")
-            .field("num_readers", &self.readers.lock().unwrap().len())
+            .field("num_readers", &self.readers.lock().len())
             .field("ops_to_replay", &self.ops_to_replay.len())
             .field("standby_table", standby_table)
             .finish()
@@ -77,11 +77,9 @@ impl<T> Writer<T> {
     /// Creates a new `Reader`.
     ///
     /// Returns None if the Mutex guarding the data is poisoned.
-    pub fn new_reader(&self) -> Option<Reader<T>> {
-        match self.inner.lock() {
-            Ok(mg) => Some(Reader::new(&mg.readers, &mg.table)),
-            Err(_) => None,
-        }
+    pub fn new_reader(&self) -> Reader<T> {
+        let mg = self.inner.lock();
+        Reader::new(&mg.readers, &mg.table)
     }
 
     /// Create a `WriteGuard` which is used to update the underlying tables.
@@ -91,17 +89,9 @@ impl<T> Writer<T> {
     /// it.
     ///
     /// Returns `PoisonError` if the Mutex guarding the data is poisoned.
-    pub fn write(&self) -> LockResult<WriteGuard<'_, T>> {
+    pub fn write(&self) -> WriteGuard<'_, T> {
         // Grab the mutex as the first thing.
-        let mut mg = match self.inner.lock() {
-            Ok(mg) => mg,
-            Err(e) => {
-                return Err(std::sync::PoisonError::new(WriteGuard {
-                    guard: e.into_inner(),
-                    swap_active_and_standby: false,
-                }));
-            }
-        };
+        let mut mg = self.inner.lock();
 
         // Wait until the standby table is free of ReadGuards so it is safe to
         // update.
@@ -122,10 +112,10 @@ impl<T> Writer<T> {
         }
         mg.ops_to_replay.clear();
 
-        Ok(WriteGuard {
+        WriteGuard {
             guard: mg,
             swap_active_and_standby: true,
-        })
+        }
     }
 
     /// Hangs until the standby table has no readers pointing to it, meaning it
@@ -133,7 +123,7 @@ impl<T> Writer<T> {
     fn await_standby_table_free(inner: &mut InnerWriter<T>) {
         // Wait until no reader is making use of the standby table.
         while !inner.blocking_readers.is_empty() {
-            let readers = inner.readers.lock().unwrap();
+            let readers = inner.readers.lock();
             inner
                 .blocking_readers
                 .retain(|key, first_epoch_after_swap| {
@@ -164,19 +154,16 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Implemented this way (as oppsed to automatic) to avoid cluttering the
         // print statement with: "Writer : Mutex : InnerWriter: <info>".
-        match self.inner.try_lock() {
-            Ok(mg) => {
-                // By holding the mutex lock we guarantee there are no mutable
-                // references to the standby table.
-                let standby_table = unsafe { mg.table.standby_table() };
-                f.debug_struct("Writer")
-                    .field("num_readers", &mg.readers.lock().unwrap().len())
-                    .field("ops_to_replay", &mg.ops_to_replay.len())
-                    .field("standby_table", standby_table)
-                    .finish()
-            }
-            Err(_) => self.inner.fmt(f),
-        }
+        let mg = self.inner.lock();
+        let num_readers = mg.readers.lock().len();
+        let ops_to_replay = mg.ops_to_replay.len();
+        // By holding the mutex lock we guarantee there are no mutable
+        // references to the standby table.
+        f.debug_struct("Writer")
+            .field("num_readers", &num_readers)
+            .field("ops_to_replay", &ops_to_replay)
+            .field("standby_table", unsafe { mg.table.standby_table() })
+            .finish()
     }
 }
 
@@ -285,7 +272,7 @@ impl<'w, T> Drop for WriteGuard<'w, T> {
         // the usage of readers and blocking_readers are conflicting mutable borrows
         // https://doc.rust-lang.org/nomicon/borrow-splitting.html
         let iw: &mut InnerWriter<T> = &mut self.guard;
-        for (key, epoch) in iw.readers.lock().unwrap().iter_mut() {
+        for (key, epoch) in iw.readers.lock().iter_mut() {
             // Once the tables have been swapped, record the epoch of each
             // reader so that we will know if it is safe to update the new
             // standby table.
@@ -316,7 +303,7 @@ where
         let standby_table = unsafe { self.guard.table.standby_table() };
         f.debug_struct("WriteGuard")
             .field("swap_active_and_standby", &self.swap_active_and_standby)
-            .field("num_readers", &self.guard.readers.lock().unwrap().len())
+            .field("num_readers", &self.guard.readers.lock().len())
             .field("ops_to_replay", &self.guard.ops_to_replay.len())
             .field("standby_table", standby_table)
             .finish()

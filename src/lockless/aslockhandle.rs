@@ -1,6 +1,5 @@
 use crate::lockless::read::{ReadGuard, Reader};
 use crate::lockless::write::{WriteGuard, Writer};
-use crate::types::*;
 
 /// Public primitive for building lockess active_standby data structures. Give
 /// users both read and write access to the tables.
@@ -30,7 +29,7 @@ impl<T> AsLockHandle<T> {
         // Getting a Reader at this point should be guaranteed to work since the
         // Mutex within Writer has never been locked and therefore cannot be
         // poisoned.
-        let reader = writer.new_reader().unwrap();
+        let reader = writer.new_reader();
 
         AsLockHandle {
             writer: std::sync::Arc::new(writer),
@@ -43,8 +42,8 @@ impl<T> AsLockHandle<T> {
     ///
     /// This is wait free since there is nothing to lock, and the Writer is
     /// responsible for never mutating the table that a ReadGuard points to.
-    pub fn read(&self) -> LockResult<ReadGuard<'_, T>> {
-        Ok(self.reader.read())
+    pub fn read(&self) -> ReadGuard<'_, T> {
+        self.reader.read()
     }
 
     /// Create a `WriteGuard` which is used to update the underlying tables.
@@ -54,7 +53,7 @@ impl<T> AsLockHandle<T> {
     /// it.
     ///
     /// Returns `PoisonError` if the Mutex guarding the data is poisoned.
-    pub fn write(&self) -> LockResult<WriteGuard<'_, T>> {
+    pub fn write(&self) -> WriteGuard<'_, T> {
         self.writer.write()
     }
 }
@@ -68,11 +67,11 @@ where
     }
 }
 
-impl<T> AsLockHandle<T>
+impl<T> Default for AsLockHandle<T>
 where
     T: Default,
 {
-    pub fn default() -> AsLockHandle<T> {
+    fn default() -> AsLockHandle<T> {
         Self::from_identical(T::default(), T::default())
     }
 }
@@ -104,6 +103,7 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::types::*;
     use std::thread;
 
     struct PushVec<T> {
@@ -158,7 +158,7 @@ mod test {
     #[test]
     fn writer_not_reentrant() {
         let table = AsLockHandle::<Vec<i32>>::from_identical(vec![], vec![]);
-        let _wg = table.write().unwrap();
+        let _wg = table.write();
 
         // If we uncomment this line the test fails due to Mutex not being
         // re-entrant. While it is well defined that the program will not
@@ -171,78 +171,75 @@ mod test {
     #[test]
     fn publish_update() {
         let table = AsLockHandle::<Vec<i32>>::new(vec![]);
-        assert_eq!(table.read().unwrap().len(), 0);
+        assert_eq!(table.read().len(), 0);
 
         {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.update_tables(PushVec { value: 2 });
             assert_eq!(wg.len(), 1);
-            assert_eq!(table.read().unwrap().len(), 0);
+            assert_eq!(table.read().len(), 0);
         }
 
         // When the write guard is dropped it publishes the changes to the readers.
-        assert_eq!(*table.read().unwrap(), vec![2]);
+        assert_eq!(*table.read(), vec![2]);
     }
 
     #[test]
     fn update_tables_closure() {
         let table = AsLockHandle::<Vec<i32>>::default();
-        assert_eq!(table.read().unwrap().len(), 0);
+        assert_eq!(table.read().len(), 0);
 
         {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.update_tables_closure(|vec| vec.push(2));
             assert_eq!(wg.len(), 1);
-            assert_eq!(table.read().unwrap().len(), 0);
+            assert_eq!(table.read().len(), 0);
         }
 
         // When the write guard is dropped it publishes the changes to the readers.
-        assert_eq!(*table.read().unwrap(), vec![2]);
+        assert_eq!(*table.read(), vec![2]);
     }
 
     #[test]
     fn multi_apply() {
         let table = AsLockHandle::<Vec<i32>>::default();
         {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.update_tables(PushVec { value: 2 });
             wg.update_tables(PushVec { value: 3 });
             wg.update_tables(PushVec { value: 4 });
             wg.update_tables(PopVec {});
             wg.update_tables(PushVec { value: 5 });
         }
-        assert_eq!(*table.read().unwrap(), vec![2, 3, 5]);
+        assert_eq!(*table.read(), vec![2, 3, 5]);
     }
 
     #[test]
     fn multi_publish() {
         let table = AsLockHandle::<Vec<Box<i32>>>::default();
         {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.update_tables(PushVec { value: Box::new(2) });
             wg.update_tables(PushVec { value: Box::new(3) });
             wg.update_tables(PopVec {});
             wg.update_tables(PushVec { value: Box::new(5) });
         }
-        assert_eq!(*table.read().unwrap(), vec![Box::new(2), Box::new(5)]);
+        assert_eq!(*table.read(), vec![Box::new(2), Box::new(5)]);
 
         {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.update_tables(PushVec { value: Box::new(9) });
             wg.update_tables(PushVec { value: Box::new(8) });
             wg.update_tables(PopVec {});
             wg.update_tables(PushVec { value: Box::new(7) });
         }
         assert_eq!(
-            *table.read().unwrap(),
+            *table.read(),
             vec![Box::new(2), Box::new(5), Box::new(9), Box::new(7)]
         );
 
-        table.write().unwrap().update_tables(PopVec {});
-        assert_eq!(
-            *table.read().unwrap(),
-            vec![Box::new(2), Box::new(5), Box::new(9)]
-        );
+        table.write().update_tables(PopVec {});
+        assert_eq!(*table.read(), vec![Box::new(2), Box::new(5), Box::new(9)]);
     }
 
     #[test]
@@ -251,23 +248,23 @@ mod test {
         let handler = {
             let table = table.clone();
             thread::spawn(move || {
-                while *table.read().unwrap() != vec![2, 3, 5] {
+                while *table.read() != vec![2, 3, 5] {
                     // Since commits oly happen when a WriteGuard is dropped no reader
                     // will see this state.
-                    assert_ne!(*table.read().unwrap(), vec![2, 3, 4]);
+                    assert_ne!(*table.read(), vec![2, 3, 4]);
                 }
 
                 // Show multiple readers in multiple threads.
                 let handler = {
                     let table = table.clone();
-                    thread::spawn(move || while *table.read().unwrap() != vec![2, 3, 5] {})
+                    thread::spawn(move || while *table.read() != vec![2, 3, 5] {})
                 };
                 assert!(handler.join().is_ok());
             })
         };
 
         {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.update_tables(PushVec { value: 2 });
             wg.update_tables(PushVec { value: 3 });
             wg.update_tables(PushVec { value: 4 });
@@ -286,7 +283,7 @@ mod test {
             table = AsLockHandle::<Vec<i32>>::default();
 
             {
-                let mut wg = table.write().unwrap();
+                let mut wg = table.write();
                 wg.update_tables(PushVec { value: 2 });
                 wg.update_tables(PushVec { value: 3 });
                 wg.update_tables(PushVec { value: 4 });
@@ -294,7 +291,7 @@ mod test {
                 wg.update_tables(PushVec { value: 5 });
             }
         }
-        assert_eq!(*table.read().unwrap(), vec![2, 3, 5]);
+        assert_eq!(*table.read(), vec![2, 3, 5]);
     }
 
     #[test]
@@ -306,7 +303,7 @@ mod test {
         );
 
         {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.update_tables(PushVec { value: 2 });
             assert_eq!(
                 format!("{:?}", wg),
@@ -319,10 +316,7 @@ mod test {
             format!("{:?}", table),
             "AsLockHandle { writer: Writer { num_readers: 1, ops_to_replay: 1, standby_table: [] }, reader: Reader { num_readers: 1, active_table: [2] } }"
         );
-        assert_eq!(
-            format!("{:?}", table.read().unwrap()),
-            "ReadGuard { active_table: [2] }"
-        );
+        assert_eq!(format!("{:?}", table.read()), "[2]");
     }
 
     #[test]
@@ -334,75 +328,16 @@ mod test {
             // Show that without giving a mutable interface we can still mutate
             // the underlying values in the table which will cause them to lose
             // consistency.
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.update_tables(PushVec { value: 2 });
             let mr = wg.update_tables(MutableRef {});
             *mr = 10;
         }
 
-        assert_eq!(*table.read().unwrap(), vec![10]);
+        assert_eq!(*table.read(), vec![10]);
 
         // This is bad and something clients must avoid. See comment on
         // UpdateTables trait for why this cannot be enforced by the library.
-        assert_ne!(*table.read().unwrap(), *table.write().unwrap());
-    }
-
-    #[test]
-    fn panic_with_wguard() {
-        let table = AsLockHandle::<Vec<i32>>::default();
-        let panic_handle = {
-            let table = table.clone();
-            thread::spawn(move || {
-                {
-                    let mut wg = table.write().unwrap();
-                    wg.update_tables(PushVec { value: 2 });
-                }
-                {
-                    let mut _wg = table.write().unwrap();
-                    panic!("Panic while holding the WriteGuard");
-                }
-            })
-        };
-        assert!(panic_handle.join().is_err());
-
-        // RG is still valid.
-        assert_eq!(*table.read().unwrap(), vec![2]);
-
-        // WG returns Error.
-        match table.write() {
-            Ok(_) => panic!("Expected an error"),
-            Err(e) => {
-                let mut wg = e.into_inner();
-                wg.update_tables(PushVec { value: 2 });
-            }
-        };
-        // Updates stop being published since the tables are in lockdown.
-        assert_eq!(*table.read().unwrap(), vec![2]);
-    }
-
-    #[test]
-    fn panic_with_rguard() {
-        let table = AsLockHandle::<Vec<i32>>::default();
-        let panic_handle = {
-            let table = table.clone();
-            thread::spawn(move || {
-                {
-                    let mut wg = table.write().unwrap();
-                    wg.update_tables(PushVec { value: 2 });
-                }
-                {
-                    let mut _rg = table.read().unwrap();
-                    panic!("Panic while holding the ReadGuard");
-                }
-            })
-        };
-        assert!(panic_handle.join().is_err());
-
-        // RG is still valid.
-        assert_eq!(*table.read().unwrap(), vec![2]);
-
-        // WG remains valid.
-        table.write().unwrap().update_tables(PushVec { value: 3 });
-        assert_eq!(*table.read().unwrap(), vec![2, 3]);
+        assert_ne!(*table.read(), *table.write());
     }
 }

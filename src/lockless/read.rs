@@ -9,7 +9,7 @@ use std::fmt;
 /// when it is safe for the Writer to mutate the standby table.
 ///
 /// {reader_key : epoch}
-pub type ReaderEpochs = Arc<Mutex<Slab<Arc<AtomicUsize>>>>;
+pub(crate) type ReaderEpochs = Arc<Mutex<Slab<Arc<AtomicUsize>>>>;
 
 /// Class used to obtain read guards to the underlying table.
 ///
@@ -56,14 +56,11 @@ impl<T> Reader<T> {
     /// Performance: this function is potentially blocking since we need to lock
     /// the set of readers. This will compete with WriteGuard creation/deletion,
     /// but not during the lifetime of a WriteGuard.
-    pub fn new(readers: &ReaderEpochs, table: &Arc<Table<T>>) -> Reader<T> {
-        let key = readers
-            .lock()
-            .unwrap()
-            .insert(Arc::new(AtomicUsize::new(0)));
+    pub(crate) fn new(readers: &ReaderEpochs, table: &Arc<Table<T>>) -> Reader<T> {
+        let key = readers.lock().insert(Arc::new(AtomicUsize::new(0)));
 
         Reader {
-            my_epoch: Arc::clone(&readers.lock().unwrap()[key]),
+            my_epoch: Arc::clone(&readers.lock()[key]),
             my_key_in_readers: key,
             readers: Arc::clone(readers),
             table: Arc::clone(table),
@@ -104,14 +101,14 @@ impl<T> Reader<T> {
 
 impl<T> Drop for Reader<T> {
     fn drop(&mut self) {
-        self.readers.lock().unwrap().remove(self.my_key_in_readers);
+        self.readers.lock().remove(self.my_key_in_readers);
     }
 }
 
 impl<T: fmt::Debug> fmt::Debug for Reader<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Reader")
-            .field("num_readers", &self.readers.lock().unwrap().len())
+            .field("num_readers", &self.readers.lock().len())
             .field("active_table", &*self.read())
             .finish()
     }
@@ -136,8 +133,6 @@ impl<'r, T> std::ops::Deref for ReadGuard<'r, T> {
 
 impl<'r, T: fmt::Debug> fmt::Debug for ReadGuard<'r, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ReadGuard")
-            .field("active_table", &self.active_table)
-            .finish()
+        self.active_table.fmt(f)
     }
 }

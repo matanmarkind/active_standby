@@ -105,7 +105,7 @@ mod benchmarks {
     fn lockless_wguard_without_rcontention(b: &mut test::bench::Bencher) {
         let table = AsLockHandle::<i32>::from_identical(1, 1);
         b.iter(|| {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.update_tables(AddOne {});
         });
     }
@@ -113,7 +113,7 @@ mod benchmarks {
     fn shared_wguard_without_rcontention(b: &mut test::bench::Bencher) {
         let table = Arc::new(shared::AsLock::new(1));
         b.iter(|| {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.add_one();
         });
     }
@@ -121,7 +121,7 @@ mod benchmarks {
     fn rwlock_wguard_without_rcontention(b: &mut test::bench::Bencher) {
         let table = Arc::new(RwLock::new(1));
         b.iter(|| {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             *wg += 1;
         });
     }
@@ -135,7 +135,7 @@ mod benchmarks {
                 let table = table.clone();
                 std::thread::spawn(move || {
                     // Continually grab read guards.
-                    while *table.read().unwrap() != 0 {
+                    while *table.read() != 0 {
                         // Hold the read guards to increase the chance of read
                         // 'contention'.
                         std::thread::sleep(std::time::Duration::from_micros(10));
@@ -147,13 +147,13 @@ mod benchmarks {
         let _writer_handle = {
             let table = table.clone();
             std::thread::spawn(move || loop {
-                let mut wg = table.write().unwrap();
+                let mut wg = table.write();
                 wg.add_one();
             })
         };
 
         b.iter(|| {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.add_one();
         });
     }
@@ -166,7 +166,7 @@ mod benchmarks {
                 let table = Arc::clone(&table);
                 std::thread::spawn(move || {
                     // Continually grab read guards.
-                    while *table.read().unwrap() != 0 {
+                    while *table.read() != 0 {
                         // Hold the read guards to increase the chance of read
                         // 'contention'.
                         std::thread::sleep(std::time::Duration::from_micros(10));
@@ -178,13 +178,13 @@ mod benchmarks {
         let _writer_handle = {
             let table = Arc::clone(&table);
             std::thread::spawn(move || loop {
-                let mut wg = table.write().unwrap();
+                let mut wg = table.write();
                 wg.add_one();
             })
         };
 
         b.iter(|| {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             wg.add_one();
         });
     }
@@ -197,7 +197,7 @@ mod benchmarks {
                 let table = Arc::clone(&table);
                 std::thread::spawn(move || {
                     // Continually grab read guards.
-                    while *table.read().unwrap() != 0 {
+                    while *table.read() != 0 {
                         // Hold the read guards to increase the chance of read
                         // 'contention'.
                         std::thread::sleep(std::time::Duration::from_micros(10));
@@ -209,13 +209,13 @@ mod benchmarks {
         let _writer_handle = {
             let table = Arc::clone(&table);
             std::thread::spawn(move || loop {
-                let mut wg = table.write().unwrap();
+                let mut wg = table.write();
                 *wg += 1;
             })
         };
 
         b.iter(|| {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             *wg += 1;
         });
     }
@@ -227,7 +227,7 @@ mod benchmarks {
         let table = AsLockHandle::<i32>::from_identical(1, 1);
 
         b.iter(|| {
-            let rg = table.read().unwrap();
+            let rg = table.read();
             assert_eq!(*rg, 1);
         });
     }
@@ -236,7 +236,7 @@ mod benchmarks {
         let table = Arc::new(shared::AsLock::new(1));
 
         b.iter(|| {
-            let rg = table.read().unwrap();
+            let rg = table.read();
             assert_eq!(*rg, 1);
         });
     }
@@ -256,7 +256,7 @@ mod benchmarks {
                 let table = table.clone();
                 std::thread::spawn(move || {
                     // Continually grab read guards.
-                    while *table.read().unwrap() != 0 {
+                    while *table.read() != 0 {
                         // Hold the read guards to increase the change of read
                         // 'contention'.
                         std::thread::sleep(std::time::Duration::from_micros(100));
@@ -269,7 +269,7 @@ mod benchmarks {
             .map(|_| {
                 let table = table.clone();
                 std::thread::spawn(move || loop {
-                    let mut wg = table.write().unwrap();
+                    let mut wg = table.write();
                     std::thread::sleep(std::time::Duration::from_micros(100));
                     wg.add_one();
                 })
@@ -277,7 +277,7 @@ mod benchmarks {
             .collect();
 
         b.iter(|| {
-            let rg = table.read().unwrap();
+            let rg = table.read();
             assert_gt!(*rg, 0);
         });
     }
@@ -289,7 +289,7 @@ mod benchmarks {
                 let aslock = Arc::clone(&aslock);
                 std::thread::spawn(move || {
                     // Continually grab read guards.
-                    while *aslock.read().unwrap() != 0 {
+                    while *aslock.read() != 0 {
                         // Hold the read guards to increase the change of read
                         // 'contention'.
                         std::thread::sleep(std::time::Duration::from_micros(100));
@@ -301,7 +301,7 @@ mod benchmarks {
             .map(|_| {
                 let aslock = Arc::clone(&aslock);
                 std::thread::spawn(move || loop {
-                    let mut wg = aslock.write().unwrap();
+                    let mut wg = aslock.write();
                     std::thread::sleep(std::time::Duration::from_micros(100));
                     wg.add_one();
                 })
@@ -309,7 +309,7 @@ mod benchmarks {
             .collect();
 
         b.iter(|| {
-            let rg = aslock.read().unwrap();
+            let rg = aslock.read();
             assert_gt!(*rg, 0);
         });
     }
@@ -321,7 +321,7 @@ mod benchmarks {
                 let table = Arc::clone(&table);
                 std::thread::spawn(move || {
                     // Continually grab read guards.
-                    while *table.read().unwrap() != 0 {
+                    while *table.read() != 0 {
                         // Hold the read guards to increase the change of read
                         // 'contention'.
                         std::thread::sleep(std::time::Duration::from_micros(100));
@@ -334,7 +334,7 @@ mod benchmarks {
             .map(|_| {
                 let table = Arc::clone(&table);
                 std::thread::spawn(move || loop {
-                    let mut wg = table.write().unwrap();
+                    let mut wg = table.write();
                     std::thread::sleep(std::time::Duration::from_micros(100));
                     *wg += 1;
                 })
@@ -342,7 +342,7 @@ mod benchmarks {
             .collect();
 
         b.iter(|| {
-            let rg = table.read().unwrap();
+            let rg = table.read();
             assert_gt!(*rg, 0);
         });
     }
