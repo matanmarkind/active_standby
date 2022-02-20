@@ -86,7 +86,7 @@ macro_rules! generate_lockless_aslockhandle {
         // AsLockHandle needs to be a new struct, because we need to "override"
         // the inner call to 'write' so that it will produce the new WriteGuard
         // type that is defined here.
-        #[derive(Default, Clone)]
+        #[derive(Clone)]
         pub struct AsLockHandle$(< $($Inner),* >)? {
             inner: AsLockHandleAlias$(< $($Inner),* >)?,
         }
@@ -124,6 +124,18 @@ macro_rules! generate_lockless_aslockhandle {
             type Target = AsLockHandleAlias$(< $($Inner),* >)?;
             fn deref(&self) -> &Self::Target {
                 &self.inner
+            }
+        }
+
+        // TODO: derive Default. Not playing nice with Rudra currently...
+        impl$(< $($Inner),* >)? Default for AsLockHandle$(< $($Inner),* >)?
+        where
+            AsLockHandleAlias$(< $($Inner),* >)?: Default,
+        {
+            fn default() -> Self {
+                AsLockHandle {
+                    inner: AsLockHandleAlias::default()
+                }
             }
         }
 
@@ -200,7 +212,6 @@ macro_rules! generate_shared_aslock {
         // type that is defined here. Note that AsLock is not identical to
         // AsLockHandle. For instance there is no Clone for AsLock, since it is
         // meant to be behind an Arc.
-        #[derive(Default)]
         pub struct AsLock$(< $($Inner),* >)? {
             inner: AsLockAlias$(< $($Inner),* >)?,
         }
@@ -245,6 +256,18 @@ macro_rules! generate_shared_aslock {
         {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 self.inner.fmt(f)
+            }
+        }
+
+        // TODO: derive Default. Not playing nice with Rudra currently...
+        impl$(< $($Inner),* >)? Default for AsLock$(< $($Inner),* >)?
+        where
+            AsLockAlias$(< $($Inner),* >)?: Default,
+        {
+            fn default() -> Self {
+                AsLock {
+                    inner: AsLockAlias::default()
+                }
             }
         }
     }
