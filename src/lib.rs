@@ -216,9 +216,7 @@ mod shared;
 pub mod primitives {
     pub use crate::types::UpdateTables;
     pub mod lockless {
-        pub use crate::lockless::aslockhandle::AsLockHandle;
-        pub use crate::lockless::read::ReadGuard;
-        pub use crate::lockless::write::WriteGuard;
+        pub use crate::lockless::aslockhandle::{AsLockHandle, ReadGuard, WriteGuard};
     }
     pub mod shared {
         pub use crate::shared::aslock::{AsLock, ReadGuard, WriteGuard};

@@ -287,16 +287,13 @@ mod lockless_test {
 
         assert_eq!(
             format!("{:?}", table),
-            "AsLockHandle { writer: Writer { num_readers: 1, ops_to_replay: 1, standby_table: {} }, reader: Reader { num_readers: 1, active_table: {12} } }"
+            "AsLockHandle { num_readers: 1, num_ops_to_replay: 1, standby_table: {}, active_table: {12} }"
         );
         assert_eq!(
             format!("{:?}", table.write()),
-            "WriteGuard { swap_active_and_standby: true, num_readers: 1, ops_to_replay: 0, standby_table: {12} }",
+            "WriteGuard { num_readers: 1, ops_to_replay: 0, standby_table: {12} }",
         );
-        assert_eq!(
-            format!("{:?}", table.read()),
-            "{12}",
-        );
+        assert_eq!(format!("{:?}", table.read()), "{12}",);
     }
 }
 
@@ -411,15 +408,12 @@ mod shared_test {
 
         assert_eq!(
             format!("{:?}", table),
-            "AsLock { num_ops_to_replay: 1, active_table: {12} }",
+            "AsLock { num_ops_to_replay: 1, standby_table: {12}, active_table: {12} }",
         );
         assert_eq!(
             format!("{:?}", table.write()),
             "WriteGuard { num_ops_to_replay: 0, standby_table: {12} }",
         );
-        assert_eq!(
-            format!("{:?}", table.read()),
-            "{12}",
-        );
+        assert_eq!(format!("{:?}", table.read()), "{12}",);
     }
 }
