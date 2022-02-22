@@ -46,7 +46,7 @@ impl<'a> UpdateTables<'a, i32, ()> for SetZero {
 pub mod lockless {
     active_standby::generate_lockless_aslockhandle!(i32);
 
-    impl<'w> WriteGuard<'w> {
+    impl<'w> AsLockWriteGuard<'w> {
         pub fn add_one(&mut self) {
             self.guard.update_tables(super::AddOne {})
         }
@@ -59,7 +59,7 @@ pub mod lockless {
 pub mod shared {
     active_standby::generate_shared_aslock!(i32);
 
-    impl<'w> WriteGuard<'w> {
+    impl<'w> AsLockWriteGuard<'w> {
         pub fn add_one(&mut self) {
             self.guard.update_tables(super::AddOne {})
         }
@@ -220,7 +220,7 @@ mod benchmarks {
         });
     }
 
-    // Test the speed of acquiring the ReadGuard when the writer never takes a guard
+    // Test the speed of acquiring the AsLockReadGuard when the writer never takes a guard
     // are there are no other readers.
     #[bench]
     fn lockless_rguard_no_contention(b: &mut test::bench::Bencher) {

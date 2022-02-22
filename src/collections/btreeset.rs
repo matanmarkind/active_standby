@@ -77,7 +77,7 @@ pub mod lockless {
     use super::*;
     crate::generate_lockless_aslockhandle!(BTreeSet<T>);
 
-    impl<'w, T> WriteGuard<'w, T>
+    impl<'w, T> AsLockWriteGuard<'w, T>
     where
         T: 'static + Ord + Clone + Send,
     {
@@ -130,7 +130,7 @@ pub mod shared {
     use super::*;
     crate::generate_shared_aslock!(BTreeSet<T>);
 
-    impl<'w, T> WriteGuard<'w, T>
+    impl<'w, T> AsLockWriteGuard<'w, T>
     where
         T: 'static + Ord + Clone + Send,
     {
@@ -291,7 +291,7 @@ mod lockless_test {
         );
         assert_eq!(
             format!("{:?}", table.write()),
-            "WriteGuard { num_readers: 1, ops_to_replay: 0, standby_table: {12} }",
+            "AsLockWriteGuard { num_readers: 1, ops_to_replay: 0, standby_table: {12} }",
         );
         assert_eq!(format!("{:?}", table.read()), "{12}",);
     }
@@ -412,7 +412,7 @@ mod shared_test {
         );
         assert_eq!(
             format!("{:?}", table.write()),
-            "WriteGuard { num_ops_to_replay: 0, standby_table: {12} }",
+            "AsLockWriteGuard { num_ops_to_replay: 0, standby_table: {12} }",
         );
         assert_eq!(format!("{:?}", table.read()), "{12}",);
     }

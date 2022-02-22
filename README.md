@@ -6,7 +6,7 @@ This library is named after the 2 (identical) tables that are held internally:
 - Standby - this is the table that the Writer mutates. A writer should face
   minimal contention retrieving this table since Readers move to the Active
   table whenever calling `.read()`, so the only contention is long lived
-  ReadGuards.
+  AsLockReadGuards.
 
 The cost of minimizing contention is:
 1. Memory - Internally there are 2 copies of the underlying type the user
@@ -30,7 +30,7 @@ tables. There are 2 ways to interact with active_standby data structure:
    to update both of the tables.
 2. Generating a client which will wrap the `update_tables` interface. This
    provides the user with an interface which imitates a regular
-   `RwLockWriteGuard` (see the `collections` module).
+   `RwLockAsLockWriteGuard` (see the `collections` module).
 
 There are 2 flavors of this algorithm that we offer:
 1. Lockless - this variant trades off increased performance against changing the
@@ -55,7 +55,7 @@ We provide 2 modules:
    active_standby model. Clients usually don't need to utilize the primitives
    and can instead either utilize the pre-made collections, or generate the
    wrapper for their struct using one of the macros and then just implement the
-   mutable API for the generated WriteGuard.
+   mutable API for the generated AsLockWriteGuard.
 2. collections - Shared and lockless active_standby structs for common
    collections. Each table type has its own `AsLock` (shared) / `AsLockHandle`
    (lockless), as opposed to `RwLock` where you simply pass in the table. This
@@ -85,7 +85,7 @@ impl<'a> UpdateTables<'a, i32, ()> for AddOne {
 pub mod lockless {
     active_standby::generate_lockless_aslockhandle!(i32);
 
-    impl<'w> WriteGuard<'w> {
+    impl<'w> AsLockWriteGuard<'w> {
         pub fn add_one(&mut self) {
             self.guard.update_tables(super::AddOne {})
         }
@@ -95,7 +95,7 @@ pub mod lockless {
 pub mod shared {
     active_standby::generate_shared_aslock!(i32);
 
-    impl<'w> WriteGuard<'w> {
+    impl<'w> AsLockWriteGuard<'w> {
         pub fn add_one(&mut self) {
             self.guard.update_tables(super::AddOne {})
         }

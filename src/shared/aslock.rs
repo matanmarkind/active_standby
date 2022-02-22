@@ -9,15 +9,15 @@ pub struct AsLock<T> {
     // The underlying tables. These tables will be utilized directly both for
     // writing and reading. The RwLock guarantees that this will be safe; in
     // practice blocking writes when there are pre-existing read guards. The use
-    // of AtomicPtr allows this struct to be `Sync`, so that when a `WriteGuard`
+    // of AtomicPtr allows this struct to be `Sync`, so that when a `AsLockWriteGuard`
     // is dropped, the tables can be swapped without ever blocking reads.
     active_table: AtomicPtr<RwLock<T>>,
     standby_table: AtomicPtr<RwLock<T>>,
 
     /// Log of operations to be performed on the second table. This gets played
-    /// on the standby table when creating a WriteGuard, as opposed to when
+    /// on the standby table when creating a AsLockWriteGuard, as opposed to when
     /// dropping it, to minimize lock contention. This is in the hopes that by
-    /// waiting until the next time a `WriteGuard` is created, we give the
+    /// waiting until the next time a `AsLockWriteGuard` is created, we give the
     /// readers time to switch to reading from the new `active_table`.
     ///
     /// This mutex is used to guarantee that `write` is single threaded, and so
@@ -26,7 +26,7 @@ pub struct AsLock<T> {
 }
 
 /// Guard used for updating the tables.
-pub struct WriteGuard<'w, T> {
+pub struct AsLockWriteGuard<'w, T> {
     // Pointers to the tables. Used to swap them on drop.
     active_table: &'w AtomicPtr<RwLock<T>>,
     standby_table: &'w AtomicPtr<RwLock<T>>,
@@ -41,16 +41,16 @@ pub struct WriteGuard<'w, T> {
     // `guard`.
     guard: ManuallyDrop<RwLockWriteGuard<'w, T>>,
 
-    // Hold onto updates for replay when the next WriteGuard is created. This
+    // Hold onto updates for replay when the next AsLockWriteGuard is created. This
     // Mutex also prevents any other thread from utilizing the `AsLock`, other
     // than calls to `read`.
     ops_to_replay: MutexGuard<'w, Vec<Box<dyn FnOnce(&mut T) + Send>>>,
 }
 
-// Define ReadGuard locally so that the type names are consistent; across
-// lockless & shared, as well as internally (WriteGuard & RwLockReadGuard seem
-// unwieldy).
-pub type ReadGuard<'r, T> = RwLockReadGuard<'r, T>;
+// Define AsLockReadGuard locally so that the type names are consistent; across
+// lockless & shared, as well as internally (AsLockWriteGuard & RwLockAsLockReadGuard
+// seem unwieldy).
+pub type AsLockReadGuard<'r, T> = RwLockReadGuard<'r, T>;
 
 impl<T> AsLock<T> {
     /// Create an `AsLock`. t1 & t2 must be identical; this is left to the
@@ -63,7 +63,7 @@ impl<T> AsLock<T> {
         }
     }
 
-    pub fn read(&self) -> ReadGuard<'_, T> {
+    pub fn read(&self) -> AsLockReadGuard<'_, T> {
         // SAFETY: The safety issue here is active_table being an invalid ptr.
         // This should never happen since standby/active table are created on
         // creation and only dropped when AsLock is dropped. In between they are
@@ -71,22 +71,22 @@ impl<T> AsLock<T> {
         unsafe { &*self.active_table.load(Ordering::SeqCst) }.read()
     }
 
-    /// Create a WriteGuard to allow users to update the the data. There will
-    /// only be 1 WriteGuard at a time.
+    /// Create a AsLockWriteGuard to allow users to update the the data. There will
+    /// only be 1 AsLockWriteGuard at a time.
     ///
     /// This function may be slow because:
-    /// 1. Another WriteGuard exists. In practice this means lock contention on
+    /// 1. Another AsLockWriteGuard exists. In practice this means lock contention on
     ///    `ops_to_replay`.
-    /// 2. A ReadGuard still points to the standby table, meaning that this
-    ///    ReadGuard came into existence before the last WriteGuard was dropped.
+    /// 2. A AsLockReadGuard still points to the standby table, meaning that this
+    ///    AsLockReadGuard came into existence before the last AsLockWriteGuard was dropped.
     /// 3. Replaying all of the updates that were applied to the last
-    ///    WriteGuard.
-    pub fn write(&self) -> WriteGuard<'_, T> {
+    ///    AsLockWriteGuard.
+    pub fn write(&self) -> AsLockWriteGuard<'_, T> {
         // Done first to ensure that writes are single threaded.
         let mut ops_to_replay = self.ops_to_replay.lock();
 
-        // Grab the standby table and obtain a `WriteGuard` to it. This may hang
-        // on `ReadGuard`s which exist from before the last swap.
+        // Grab the standby table and obtain a `AsLockWriteGuard` to it. This may hang
+        // on `AsLockReadGuard`s which exist from before the last swap.
         //
         // SAFETY: The safety issue here is standby_table being an invalid ptr.
         // This should never happen since standby/active table are created on
@@ -100,7 +100,7 @@ impl<T> AsLock<T> {
         }
         ops_to_replay.clear();
 
-        WriteGuard {
+        AsLockWriteGuard {
             guard: ManuallyDrop::new(wg),
             active_table: &self.active_table,
             standby_table: &self.standby_table,
@@ -149,7 +149,7 @@ impl<T: fmt::Debug> fmt::Debug for AsLock<T> {
     }
 }
 
-impl<'w, T> WriteGuard<'w, T> {
+impl<'w, T> AsLockWriteGuard<'w, T> {
     /// Takes an update which will change the state of the underlying data. This
     /// is done through the interface of UpdateTables.
     ///
@@ -157,7 +157,7 @@ impl<'w, T> WriteGuard<'w, T> {
     /// since this will lead to them going out of sync.
     ///
     /// The update passed in must be valid for 'static because it will outlive
-    /// the WriteGuard taking the update, so we can't make any limitations on
+    /// the AsLockWriteGuard taking the update, so we can't make any limitations on
     /// it.
     pub fn update_tables<'a, R>(
         &'a mut self,
@@ -191,17 +191,17 @@ impl<'w, T> WriteGuard<'w, T> {
     }
 }
 
-impl<'w, T> Drop for WriteGuard<'w, T> {
+impl<'w, T> Drop for AsLockWriteGuard<'w, T> {
     fn drop(&mut self) {
-        // SAFETY: We must guarantee that all calls to WriteGuard::drop drop
+        // SAFETY: We must guarantee that all calls to AsLockWriteGuard::drop drop
         // self.guard to unlock the table.
         //
         // SAFETY: We can guarantee that the guard is valid (and therefore safe
-        // to drop), because the value is only ever set on WriteGuard creation
+        // to drop), because the value is only ever set on AsLockWriteGuard creation
         // from a valid value and is never changed.
         unsafe { ManuallyDrop::drop(&mut self.guard) };
 
-        // Swap the tables after releasing the RwLockWriteGuard to guarantee
+        // Swap the tables after releasing the RwLockAsLockWriteGuard to guarantee
         // reads are never blocked.
         fence(Ordering::SeqCst);
 
@@ -210,7 +210,7 @@ impl<'w, T> Drop for WriteGuard<'w, T> {
         assert_ne!(active_table, standby_table);
 
         // Swap the active and standby tables. These should never fail because
-        // there can only ever be 1 writer which spawns only 1 WriteGuard.
+        // there can only ever be 1 writer which spawns only 1 AsLockWriteGuard.
         let res = self.active_table.compare_exchange(
             active_table,
             standby_table,
@@ -228,21 +228,21 @@ impl<'w, T> Drop for WriteGuard<'w, T> {
         assert_eq!(res, Ok(standby_table));
 
         // Only after swapping the tables should we drop the Mutex to
-        // `ops_to_replay`, allowing a new WriteGuard.
+        // `ops_to_replay`, allowing a new AsLockWriteGuard.
     }
 }
 
-impl<'w, T> std::ops::Deref for WriteGuard<'w, T> {
+impl<'w, T> std::ops::Deref for AsLockWriteGuard<'w, T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         &**self.guard
     }
 }
 
-impl<'w, T: fmt::Debug> fmt::Debug for WriteGuard<'w, T> {
+impl<'w, T: fmt::Debug> fmt::Debug for AsLockWriteGuard<'w, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use std::ops::Deref;
-        f.debug_struct("WriteGuard")
+        f.debug_struct("AsLockWriteGuard")
             .field("num_ops_to_replay", &self.ops_to_replay.len())
             .field("standby_table", self.deref())
             .finish()
@@ -404,7 +404,7 @@ mod test {
         let aslock2 = Arc::clone(&aslock);
         let handler = thread::spawn(move || {
             while *aslock2.read() != vec![2, 3, 5] {
-                // Since commits oly happen when a WriteGuard is dropped no reader
+                // Since commits oly happen when a AsLockWriteGuard is dropped no reader
                 // will see this state.
                 assert_ne!(*aslock2.read(), vec![2, 3, 4]);
             }
@@ -439,7 +439,7 @@ mod test {
             wg.update_tables(PushVec { value: 2 });
             assert_eq!(
                 format!("{:?}", wg),
-                "WriteGuard { num_ops_to_replay: 1, standby_table: [2] }"
+                "AsLockWriteGuard { num_ops_to_replay: 1, standby_table: [2] }"
             );
         }
         assert_eq!(
@@ -447,7 +447,7 @@ mod test {
             "AsLock { num_ops_to_replay: 1, standby_table: [2], active_table: [2] }"
         );
         // The aliased shared lock shows up in this debug. What we mostly care
-        // about is that this says ReadGuard and shows the underlying data. It's
+        // about is that this says AsLockReadGuard and shows the underlying data. It's
         // fine to update this if we ever change the underlying RwLock.
         assert_eq!(format!("{:?}", aslock.read()), "[2]");
     }

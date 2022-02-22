@@ -1,8 +1,8 @@
 /// This contains the primitives for building the lockless interface for
 /// active_standby. The public interface is made up of:
 /// - AsLockHandle - analagous to Arc<RwLock>.
-/// - WriteGuard - analagous to RwLockWriteGuard.
-/// - ReadGuard - analagous to RwLockReadGuard.
+/// - AsLockWriteGuard - analagous to RwLockAsLockWriteGuard.
+/// - AsLockReadGuard - analagous to RwLockReadGuard.
 ///
 /// A high level outline of how this is achieved and the required invariants to
 /// guarantee safety:
@@ -58,7 +58,7 @@ struct Reader<T> {
 }
 
 /// Guard used for obtaining const access to the active table.
-pub struct ReadGuard<'r, T> {
+pub struct AsLockReadGuard<'r, T> {
     // Read by callers when dereferenceing the table.
     active_table: &'r T,
 
@@ -78,23 +78,23 @@ struct Writer<T> {
 
     // Log of operations to be performed on the second table.
     //
-    // During a WriteGuard's lifetime, it mutates the standby table, but leaves
+    // During a AsLockWriteGuard's lifetime, it mutates the standby table, but leaves
     // the active one constant for reads. These tables are then swapped when
-    // the WriteGuard is dropped. Therefore, the next time a WriteGuard is
+    // the AsLockWriteGuard is dropped. Therefore, the next time a AsLockWriteGuard is
     // created, the standby table it points to will still need to have these
     // updates applied to it to keep the tables sychronized.
     ops_to_replay: Vec<Box<dyn FnOnce(&mut T) + Send>>,
 
     // List of all readers. Used for:
     // - Creating new readers.
-    // - Blocking WriteGuard creation due to existing reads.
+    // - Blocking AsLockWriteGuard creation due to existing reads.
     // - Updating the active_table on swap.
     readers: ReadersList<T>,
 
     // A record of readers and their epoch after the most recent swap.
     //
-    // Filled by the WriteGuard when it is dropped, and used by the Writer to
-    // block creation of a new WriteGuard until there are no ReadGuards left
+    // Filled by the AsLockWriteGuard when it is dropped, and used by the Writer to
+    // block creation of a new AsLockWriteGuard until there are no AsLockReadGuards left
     // pointing to the standby table.
     //
     // {reader_key : first_epoch_after_swap}.
@@ -118,7 +118,7 @@ pub struct AsLockHandle<T> {
 
 /// Interface for updating the tables. Produced by the AsLockHandle, not the
 /// Writer.
-pub struct WriteGuard<'w, T> {
+pub struct AsLockWriteGuard<'w, T> {
     writer: MutexGuard<'w, Writer<T>>,
 }
 
@@ -126,14 +126,14 @@ impl<T> Reader<T> {
     /// Obtain a read guard with which to inspect the active table.
     ///
     /// This should never block free since there is nothing to lock, and the
-    /// Writer is responsible for never mutating the table that a ReadGuard
+    /// Writer is responsible for never mutating the table that a AsLockReadGuard
     /// points to.
     ///
     /// The steps involved are:
     /// 1. Arc dereference to shared state.
     /// 2. AtomicUsize increment to lock the table.
     /// 3. AtomicPtr load to the table.
-    pub fn read(&self) -> ReadGuard<'_, T> {
+    pub fn read(&self) -> AsLockReadGuard<'_, T> {
         // 1. Load the shared state.
         let TableAndEpoch { table, epoch } = &*self.shared_state;
 
@@ -149,7 +149,7 @@ impl<T> Reader<T> {
         fence(Ordering::SeqCst);
 
         // 3. Atomic load of the active table. The actual dereference will
-        //    happen when the user makes use the the ReadGuard.
+        //    happen when the user makes use the the AsLockReadGuard.
         //
         // SAFETY: Memory safety (valid pointer) is guaranteed by
         // AsLockHandle/Writer, which enforce that the tables are created before
@@ -160,7 +160,7 @@ impl<T> Reader<T> {
         // `epoch` counter by the Reader and `await_standby_table_free` by the
         // Writer.
         let active_table = unsafe { &*table.load(Ordering::SeqCst) };
-        ReadGuard {
+        AsLockReadGuard {
             active_table,
             epoch: &epoch,
         }
@@ -183,7 +183,7 @@ impl<T: fmt::Debug> fmt::Debug for Reader<T> {
     }
 }
 
-impl<'r, T> Drop for ReadGuard<'r, T> {
+impl<'r, T> Drop for AsLockReadGuard<'r, T> {
     /// Update the epoch counter to notify the Writer that we are done using the
     /// active table and so it is available for use as the new standby table.
     fn drop(&mut self) {
@@ -193,14 +193,14 @@ impl<'r, T> Drop for ReadGuard<'r, T> {
     }
 }
 
-impl<'r, T> std::ops::Deref for ReadGuard<'r, T> {
+impl<'r, T> std::ops::Deref for AsLockReadGuard<'r, T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         self.active_table
     }
 }
 
-impl<'r, T: fmt::Debug> fmt::Debug for ReadGuard<'r, T> {
+impl<'r, T: fmt::Debug> fmt::Debug for AsLockReadGuard<'r, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.active_table.fmt(f)
     }
@@ -241,8 +241,8 @@ impl<T> Writer<T> {
         }
     }
 
-    /// Hangs until the standby table is free of `ReadGuards` which point to it.
-    /// This means that the Writer can produce a WriteGuard to it and perform
+    /// Hangs until the standby table is free of `AsLockReadGuards` which point to it.
+    /// This means that the Writer can produce a AsLockWriteGuard to it and perform
     /// updates.
     fn await_standby_table_free(&mut self) {
         while !self.blocking_readers.is_empty() {
@@ -298,22 +298,22 @@ impl<T> AsLockHandle<T> {
     /// Obtain a read guard with which to inspect the active table.
     ///
     /// This is wait free since there is nothing to lock, and the Writer is
-    /// responsible for never mutating the table that a ReadGuard points to.
-    pub fn read(&self) -> ReadGuard<'_, T> {
+    /// responsible for never mutating the table that a AsLockReadGuard points to.
+    pub fn read(&self) -> AsLockReadGuard<'_, T> {
         self.reader.read()
     }
 
-    /// Create a `WriteGuard` which is used to update the underlying tables.
+    /// Create a `AsLockWriteGuard` which is used to update the underlying tables.
     ///
     /// This function may be slow because:
-    /// 1. Another WriteGuard exists. In practice this means lock contention on
+    /// 1. Another AsLockWriteGuard exists. In practice this means lock contention on
     ///    `writer`.
-    /// 2. A `ReadGuard` still points to the standby table, meaning that this
-    ///    `ReadGuard` came into existence before the last `WriteGuard` was
+    /// 2. A `AsLockReadGuard` still points to the standby table, meaning that this
+    ///    `AsLockReadGuard` came into existence before the last `AsLockWriteGuard` was
     ///    dropped.
     /// 3. Replaying all of the updates that were applied to the last
-    ///    `WriteGuard`.
-    pub fn write(&self) -> WriteGuard<'_, T> {
+    ///    `AsLockWriteGuard`.
+    pub fn write(&self) -> AsLockWriteGuard<'_, T> {
         let mut mg = self.writer.lock();
         // Explicitly cast MutexGuard into Writer in order for split borrowing
         // to work. Without this line the compiler thinks that the borrow of
@@ -321,7 +321,7 @@ impl<T> AsLockHandle<T> {
         // https://doc.rust-lang.org/nomicon/borrow-splitting.html
         let writer: &mut Writer<_> = &mut mg;
 
-        // Wait until the standby table is free of ReadGuards so it is safe to
+        // Wait until the standby table is free of AsLockReadGuards so it is safe to
         // update.
         writer.await_standby_table_free();
         std::sync::atomic::compiler_fence(Ordering::SeqCst);
@@ -333,7 +333,7 @@ impl<T> AsLockHandle<T> {
         }
         writer.ops_to_replay.clear();
 
-        WriteGuard { writer: mg }
+        AsLockWriteGuard { writer: mg }
     }
 }
 
@@ -387,7 +387,7 @@ where
     }
 }
 
-impl<'w, T> WriteGuard<'w, T> {
+impl<'w, T> AsLockWriteGuard<'w, T> {
     /// Takes an update which will change the state of the underlying data. This
     /// is done through the interface of UpdateTables.
     ///
@@ -395,7 +395,7 @@ impl<'w, T> WriteGuard<'w, T> {
     /// since this will lead to them going out of sync.
     ///
     /// The update passed in must be valid for 'static because it will outlive
-    /// the WriteGuard taking the update, so we can't make any limitations on
+    /// the AsLockWriteGuard taking the update, so we can't make any limitations on
     /// it.
     pub fn update_tables<'a, R>(
         &'a mut self,
@@ -436,7 +436,7 @@ impl<'w, T> WriteGuard<'w, T> {
     }
 }
 
-impl<'w, T> Drop for WriteGuard<'w, T> {
+impl<'w, T> Drop for AsLockWriteGuard<'w, T> {
     fn drop(&mut self) {
         // Explicitly cast mg into the InnerWriter that it guards in order for
         // split borrowing to work. Without this line the compiler thinks that
@@ -467,7 +467,7 @@ impl<'w, T> Drop for WriteGuard<'w, T> {
             // standby table.
             let first_epoch_after_swap = table_and_epoch.epoch.load(Ordering::Acquire);
             if first_epoch_after_swap % 2 != 0 {
-                // If the epoch is even, it means that there is no ReadGuard
+                // If the epoch is even, it means that there is no AsLockReadGuard
                 // active.
                 writer.blocking_readers.insert(key, first_epoch_after_swap);
             }
@@ -475,19 +475,19 @@ impl<'w, T> Drop for WriteGuard<'w, T> {
     }
 }
 
-impl<'w, T> std::ops::Deref for WriteGuard<'w, T> {
+impl<'w, T> std::ops::Deref for AsLockWriteGuard<'w, T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         &self.writer.standby_table
     }
 }
 
-impl<'w, T> std::fmt::Debug for WriteGuard<'w, T>
+impl<'w, T> std::fmt::Debug for AsLockWriteGuard<'w, T>
 where
     T: std::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("WriteGuard")
+        f.debug_struct("AsLockWriteGuard")
             .field("num_readers", &self.writer.readers.lock().len())
             .field("ops_to_replay", &self.writer.ops_to_replay.len())
             .field("standby_table", &self.writer.standby_table)
@@ -645,7 +645,7 @@ mod test {
             let table = table.clone();
             thread::spawn(move || {
                 while *table.read() != vec![2, 3, 5] {
-                    // Since commits oly happen when a WriteGuard is dropped no reader
+                    // Since commits oly happen when a AsLockWriteGuard is dropped no reader
                     // will see this state.
                     assert_ne!(*table.read(), vec![2, 3, 4]);
                 }
@@ -724,11 +724,11 @@ mod test {
             wg.update_tables(PushVec { value: 2 });
             assert_eq!(
                 format!("{:?}", wg),
-                "WriteGuard { num_readers: 1, ops_to_replay: 1, standby_table: [2] }"
+                "AsLockWriteGuard { num_readers: 1, ops_to_replay: 1, standby_table: [2] }"
             );
         }
 
-        // No second WriteGuard has been created, so we have yet to replay the
+        // No second AsLockWriteGuard has been created, so we have yet to replay the
         // ops on the standby_table.
         assert_eq!(
             format!("{:?}", table),

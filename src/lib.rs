@@ -7,7 +7,7 @@
 //! - Standby - this is the table that the Writer mutates. A writer should face
 //!   minimal contention retrieving this table since Readers move to the Active
 //!   table whenever calling `.read()`, so the only contention is long lived
-//!   ReadGuards.
+//!   AsLockReadGuards.
 //!
 //! The cost of minimizing contention is:
 //! 1. Memory - Internally there are 2 copies of the underlying type the user
@@ -32,7 +32,7 @@
 //!    `UpdateTables`) to update both of the tables.
 //! 2. Generating a client which will wrap the `update_tables` interface. This
 //!    provides the user with an interface which imitates a regular
-//!    `RwLockWriteGuard` (see the `collections` module).
+//!    `RwLockAsLockWriteGuard` (see the `collections` module).
 //!
 //! There are 2 flavors of this algorithm that we offer:
 //! 1. Lockless - this variant trades off increased performance against changing
@@ -58,7 +58,7 @@
 //!    active_standby model. Clients usually don't need to utilize the
 //!    primitives and can instead either utilize the pre-made collections, or
 //!    generate the wrapper for their struct using one of the macros and then
-//!    just implement the mutable API for the generated WriteGuard.
+//!    just implement the mutable API for the generated AsLockWriteGuard.
 //! 2. collections - Shared and lockless active_standby structs for common
 //!    collections. Each table type has its own `AsLock` (shared) /
 //!    `AsLockHandle` (lockless), as opposed to `RwLock` where you simply pass
@@ -88,7 +88,7 @@
 //! pub mod lockless {
 //!     active_standby::generate_lockless_aslockhandle!(i32);
 //!
-//!     impl<'w> WriteGuard<'w> {
+//!     impl<'w> AsLockWriteGuard<'w> {
 //!         pub fn add_one(&mut self) {
 //!             self.guard.update_tables(super::AddOne {})
 //!         }
@@ -98,7 +98,7 @@
 //! pub mod shared {
 //!     active_standby::generate_shared_aslock!(i32);
 //!
-//!     impl<'w> WriteGuard<'w> {
+//!     impl<'w> AsLockWriteGuard<'w> {
 //!         pub fn add_one(&mut self) {
 //!             self.guard.update_tables(super::AddOne {})
 //!         }
@@ -212,14 +212,14 @@ mod shared;
 /// Users should usually don't need to utilize the primitives and can instead
 /// either utilize the pre-made collections, or generate the wrapper for their
 /// struct using one of the macros and then just implement the mutations for the
-/// generated WriteGuard (see collections for examples).
+/// generated AsLockWriteGuard (see collections for examples).
 pub mod primitives {
     pub use crate::types::UpdateTables;
     pub mod lockless {
-        pub use crate::lockless::aslockhandle::{AsLockHandle, ReadGuard, WriteGuard};
+        pub use crate::lockless::aslockhandle::{AsLockHandle, AsLockReadGuard, AsLockWriteGuard};
     }
     pub mod shared {
-        pub use crate::shared::aslock::{AsLock, ReadGuard, WriteGuard};
+        pub use crate::shared::aslock::{AsLock, AsLockReadGuard, AsLockWriteGuard};
         pub use crate::types::RwLock;
     }
 }

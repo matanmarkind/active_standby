@@ -81,7 +81,7 @@ pub mod lockless {
     use super::*;
     crate::generate_lockless_aslockhandle!(HashSet<T>);
 
-    impl<'w, 'a, T> WriteGuard<'w, T>
+    impl<'w, 'a, T> AsLockWriteGuard<'w, T>
     where
         T: 'static + Eq + Hash + Clone + Send,
     {
@@ -147,7 +147,7 @@ pub mod shared {
     use super::*;
     crate::generate_shared_aslock!(HashSet<T>);
 
-    impl<'w, 'a, T> WriteGuard<'w, T>
+    impl<'w, 'a, T> AsLockWriteGuard<'w, T>
     where
         T: 'static + Eq + Hash + Clone + Send,
     {
@@ -333,7 +333,7 @@ mod lockless_test {
         assert_eq!(format!("{:?}", table), "AsLockHandle { num_readers: 1, num_ops_to_replay: 1, standby_table: {}, active_table: {12} }",);
         assert_eq!(
             format!("{:?}", table.write()),
-            "WriteGuard { num_readers: 1, ops_to_replay: 0, standby_table: {12} }",
+            "AsLockWriteGuard { num_readers: 1, ops_to_replay: 0, standby_table: {12} }",
         );
         assert_eq!(format!("{:?}", table.read()), "{12}",);
     }
@@ -469,7 +469,7 @@ mod shared_test {
         );
         assert_eq!(
             format!("{:?}", table.write()),
-            "WriteGuard { num_ops_to_replay: 0, standby_table: {12} }",
+            "AsLockWriteGuard { num_ops_to_replay: 0, standby_table: {12} }",
         );
         assert_eq!(format!("{:?}", table.read()), "{12}",);
     }

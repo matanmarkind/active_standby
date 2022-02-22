@@ -36,16 +36,16 @@ macro_rules! generate_lockless_aslockhandle {
             $( $Inner:tt ),*
         >)?
     ) => {
-        // WriteGuard must be a new struct, because clients will implement the
-        // update functions for the generated WriteGuard type. If this was just
+        // AsLockWriteGuard must be a new struct, because clients will implement the
+        // update functions for the generated AsLockWriteGuard type. If this was just
         // a type alias, clients would be blocked from creating impl blocks
         // outside of the active_standby crate.
-        pub struct WriteGuard<'w, $($($Inner),*)?> {
-            guard: $crate::primitives::lockless::WriteGuard<'w, $Table $(< $($Inner),* >)?>,
+        pub struct AsLockWriteGuard<'w, $($($Inner),*)?> {
+            guard: $crate::primitives::lockless::AsLockWriteGuard<'w, $Table $(< $($Inner),* >)?>,
         }
 
         // Allow the user to `update_tables` directly in case there is an interface missing.
-        impl<'w, $($($Inner),*)?> WriteGuard<'w, $($($Inner),*)?> {
+        impl<'w, $($($Inner),*)?> AsLockWriteGuard<'w, $($($Inner),*)?> {
             pub fn update_tables<'a, R>(
                 &'a mut self,
                 update: impl $crate::primitives::UpdateTables<'a, $Table$(< $($Inner),* >)?, R> + 'static + Sized + Send,
@@ -61,18 +61,18 @@ macro_rules! generate_lockless_aslockhandle {
             }
         }
 
-        // Deref should pass through the wrapper WriteGuard and look like the
-        // user holds a primitive WriteGuard to the underlying table.
-        impl<'w, $($($Inner),*)?> std::ops::Deref for WriteGuard<'w, $($($Inner),*)?> {
+        // Deref should pass through the wrapper AsLockWriteGuard and look like the
+        // user holds a primitive AsLockWriteGuard to the underlying table.
+        impl<'w, $($($Inner),*)?> std::ops::Deref for AsLockWriteGuard<'w, $($($Inner),*)?> {
             type Target = $Table$(< $($Inner),* >)?;
             fn deref(&self) -> &Self::Target {
                 &*self.guard
             }
         }
 
-        // Debug should pass through the wrapper WriteGuard and look like the
-        // user holds a primitive WriteGuard to the underlying table.
-        impl<'w, $($($Inner),*)?> std::fmt::Debug for WriteGuard<'w, $($($Inner),*)?>
+        // Debug should pass through the wrapper AsLockWriteGuard and look like the
+        // user holds a primitive AsLockWriteGuard to the underlying table.
+        impl<'w, $($($Inner),*)?> std::fmt::Debug for AsLockWriteGuard<'w, $($($Inner),*)?>
             where $Table$(<$($Inner),*>)? : std::fmt::Debug,
         {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -84,7 +84,7 @@ macro_rules! generate_lockless_aslockhandle {
             $crate::primitives::lockless::AsLockHandle<$Table $(< $($Inner),* >)? >;
 
         // AsLockHandle needs to be a new struct, because we need to "override"
-        // the inner call to 'write' so that it will produce the new WriteGuard
+        // the inner call to 'write' so that it will produce the new AsLockWriteGuard
         // type that is defined here.
         #[derive(Clone)]
         pub struct AsLockHandle$(< $($Inner),* >)? {
@@ -101,9 +101,9 @@ macro_rules! generate_lockless_aslockhandle {
                 }
             }
 
-            pub fn write(&self) -> WriteGuard<'_, $($($Inner),*)?> {
-                // Type conversion from generic WriteGuard to the generated WriteGuard.
-                WriteGuard {
+            pub fn write(&self) -> AsLockWriteGuard<'_, $($($Inner),*)?> {
+                // Type conversion from generic AsLockWriteGuard to the generated AsLockWriteGuard.
+                AsLockWriteGuard {
                     guard: self.inner.write()
                 }
             }
@@ -160,16 +160,16 @@ macro_rules! generate_shared_aslock {
             $( $Inner:tt ),*
         >)?
     ) => {
-        // WriteGuard must be a new struct, because clients will implement the
-        // update functions for the generated WriteGuard type. If this was just
+        // AsLockWriteGuard must be a new struct, because clients will implement the
+        // update functions for the generated AsLockWriteGuard type. If this was just
         // a type alias, clients would be blocked from creating impl blocks
         // outside of the active_standby crate.
-        pub struct WriteGuard<'w, $($($Inner),*)?> {
-            guard: $crate::primitives::shared::WriteGuard<'w, $Table $(< $($Inner),* >)?>,
+        pub struct AsLockWriteGuard<'w, $($($Inner),*)?> {
+            guard: $crate::primitives::shared::AsLockWriteGuard<'w, $Table $(< $($Inner),* >)?>,
         }
 
         // Allow the user to `update_tables` directly in case there is an interface missing.
-        impl<'w, $($($Inner),*)?> WriteGuard<'w, $($($Inner),*)?> {
+        impl<'w, $($($Inner),*)?> AsLockWriteGuard<'w, $($($Inner),*)?> {
             pub fn update_tables<'a, R>(
                 &'a mut self,
                 update: impl $crate::primitives::UpdateTables<'a, $Table$(< $($Inner),* >)?, R> + 'static + Sized + Send,
@@ -185,18 +185,18 @@ macro_rules! generate_shared_aslock {
             }
         }
 
-        // Deref should pass through the wrapper WriteGuard and look like the
-        // user holds a primitive WriteGuard to the underlying table.
-        impl<'w, $($($Inner),*)?> std::ops::Deref for WriteGuard<'w, $($($Inner),*)?> {
+        // Deref should pass through the wrapper AsLockWriteGuard and look like the
+        // user holds a primitive AsLockWriteGuard to the underlying table.
+        impl<'w, $($($Inner),*)?> std::ops::Deref for AsLockWriteGuard<'w, $($($Inner),*)?> {
             type Target = $Table$(< $($Inner),* >)?;
             fn deref(&self) -> &Self::Target {
                 &*self.guard
             }
         }
 
-        // Debug should pass through the wrapper WriteGuard and look like the
-        // user holds a primitive WriteGuard to the underlying table.
-        impl<'w, $($($Inner),*)?> std::fmt::Debug for WriteGuard<'w, $($($Inner),*)?>
+        // Debug should pass through the wrapper AsLockWriteGuard and look like the
+        // user holds a primitive AsLockWriteGuard to the underlying table.
+        impl<'w, $($($Inner),*)?> std::fmt::Debug for AsLockWriteGuard<'w, $($($Inner),*)?>
             where $Table$(<$($Inner),*>)? : std::fmt::Debug,
         {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -208,7 +208,7 @@ macro_rules! generate_shared_aslock {
             $crate::primitives::shared::AsLock<$Table $(< $($Inner),* >)? >;
 
         // AsLock needs to be a new struct, because we need to "override" the
-        // inner call to 'write' so that it will produce the new WriteGuard
+        // inner call to 'write' so that it will produce the new AsLockWriteGuard
         // type that is defined here. Note that AsLock is not identical to
         // AsLockHandle. For instance there is no Clone for AsLock, since it is
         // meant to be behind an Arc.
@@ -226,8 +226,8 @@ macro_rules! generate_shared_aslock {
                 }
             }
 
-            pub fn write(&self) -> WriteGuard<'_, $($($Inner),*)?> {
-                WriteGuard {
+            pub fn write(&self) -> AsLockWriteGuard<'_, $($($Inner),*)?> {
+                AsLockWriteGuard {
                     guard: self.inner.write()
                 }
             }
@@ -275,11 +275,11 @@ macro_rules! generate_shared_aslock {
 
 /// Testing convenience for checking that tables hold the expected value. The
 /// test works as follows:
-/// 1. assert_eq!(ReadGuard, expected) - basic check
-/// 2. assert_eq!(WriteGuard, expected) - this triggers replaying the ops on the
+/// 1. assert_eq!(AsLockReadGuard, expected) - basic check
+/// 2. assert_eq!(AsLockWriteGuard, expected) - this triggers replaying the ops on the
 ///    second table and seeing that it is updated appropriately and that the
-///    WriteGuard's view matches the expectation.
-/// 3. assert_eq!(ReadGuard, expected) - This should be a read of the other
+///    AsLockWriteGuard's view matches the expectation.
+/// 3. assert_eq!(AsLockReadGuard, expected) - This should be a read of the other
 ///    table, which confirms that reads to both tables match the
 ///    expectation/receive the updates.
 ///

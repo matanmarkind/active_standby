@@ -58,9 +58,7 @@ mod loom_tests {
             let val;
             {
                 let table = table.clone();
-                val = thread::spawn(move || *table.read())
-                    .join()
-                    .unwrap();
+                val = thread::spawn(move || *table.read()).join().unwrap();
             }
 
             {
@@ -72,9 +70,7 @@ mod loom_tests {
 
             {
                 let table = table.clone();
-                let val = thread::spawn(move || *table.read())
-                    .join()
-                    .unwrap();
+                let val = thread::spawn(move || *table.read()).join().unwrap();
                 assert_eq!(val, 3);
             }
         });
@@ -90,9 +86,7 @@ mod loom_tests {
             }
 
             let table2 = Arc::clone(&table);
-            let val = thread::spawn(move || *table2.read())
-                .join()
-                .unwrap();
+            let val = thread::spawn(move || *table2.read()).join().unwrap();
 
             {
                 let mut wg = table.write();
@@ -102,9 +96,7 @@ mod loom_tests {
             assert_eq!(val, 2);
 
             let table2 = Arc::clone(&table);
-            let val = thread::spawn(move || *table2.read())
-                .join()
-                .unwrap();
+            let val = thread::spawn(move || *table2.read()).join().unwrap();
             assert_eq!(val, 3);
         });
     }
@@ -116,7 +108,7 @@ mod loom_tests {
         // that spawned threads will run in. In this example, either the writer
         // or reader could run before the other. Loom catches this because the
         // epoch counter shows a different value when trying to claim a
-        // WriteGuard. https://github.com/tokio-rs/loom/issues/233.
+        // AsLockWriteGuard. https://github.com/tokio-rs/loom/issues/233.
         loom::model(|| {
             let table = AsLockHandle::<i32>::from_identical(0, 0);
 
@@ -137,7 +129,7 @@ mod loom_tests {
                         cv.notify_all();
                         step_num = wait_while(&cv, cond.lock().unwrap(), |step| *step < 2).unwrap();
 
-                        // Write while the other thread holds the ReadGuard.
+                        // Write while the other thread holds the AsLockReadGuard.
                         wg.update_tables(AddOne {});
 
                         // Make sure to drop wg before notifying the reader.
@@ -155,7 +147,7 @@ mod loom_tests {
                     let mut step_num =
                         wait_while(&cv, cond.lock().unwrap(), |step| *step < 1).unwrap();
 
-                    // Grab reader while holding the WriteGuard.
+                    // Grab reader while holding the AsLockWriteGuard.
                     rg = table.read();
                     assert_eq!(*rg, 0);
 
@@ -169,7 +161,7 @@ mod loom_tests {
             // Grabbing a new reader will show the newly published value.
             assert_eq!(*table.read(), 2);
 
-            // Cannot join if there are any ReadGuards alive in this thread
+            // Cannot join if there are any AsLockReadGuards alive in this thread
             // since this may deadlock.
             assert!(writer_handle.join().is_ok());
         });
@@ -202,7 +194,7 @@ mod loom_tests {
 
             assert_eq!(*table.read() % 2, 0);
 
-            // Cannot join if there are any ReadGuards alive in this thread
+            // Cannot join if there are any AsLockReadGuards alive in this thread
             // since this may deadlock.
             assert!(writer_handle.join().is_ok());
             assert!(reader_handle.join().is_ok());
