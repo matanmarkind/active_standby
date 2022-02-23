@@ -78,9 +78,9 @@ struct Writer<T> {
 
     // Log of operations to be performed on the second table.
     //
-    // During a AsLockWriteGuard's lifetime, it mutates the standby table, but leaves
+    // During an AsLockWriteGuard's lifetime, it mutates the standby table, but leaves
     // the active one constant for reads. These tables are then swapped when
-    // the AsLockWriteGuard is dropped. Therefore, the next time a AsLockWriteGuard is
+    // the AsLockWriteGuard is dropped. Therefore, the next time an AsLockWriteGuard is
     // created, the standby table it points to will still need to have these
     // updates applied to it to keep the tables sychronized.
     ops_to_replay: Vec<Box<dyn FnOnce(&mut T) + Send>>,
@@ -126,7 +126,7 @@ impl<T> Reader<T> {
     /// Obtain a read guard with which to inspect the active table.
     ///
     /// This should never block free since there is nothing to lock, and the
-    /// Writer is responsible for never mutating the table that a AsLockReadGuard
+    /// Writer is responsible for never mutating the table that an AsLockReadGuard
     /// points to.
     ///
     /// The steps involved are:
@@ -242,7 +242,7 @@ impl<T> Writer<T> {
     }
 
     /// Hangs until the standby table is free of `AsLockReadGuards` which point to it.
-    /// This means that the Writer can produce a AsLockWriteGuard to it and perform
+    /// This means that the Writer can produce an AsLockWriteGuard to it and perform
     /// updates.
     fn await_standby_table_free(&mut self) {
         while !self.blocking_readers.is_empty() {
@@ -298,7 +298,7 @@ impl<T> AsLockHandle<T> {
     /// Obtain a read guard with which to inspect the active table.
     ///
     /// This is wait free since there is nothing to lock, and the Writer is
-    /// responsible for never mutating the table that a AsLockReadGuard points to.
+    /// responsible for never mutating the table that an AsLockReadGuard points to.
     pub fn read(&self) -> AsLockReadGuard<'_, T> {
         self.reader.read()
     }
@@ -645,7 +645,7 @@ mod test {
             let table = table.clone();
             thread::spawn(move || {
                 while *table.read() != vec![2, 3, 5] {
-                    // Since commits oly happen when a AsLockWriteGuard is dropped no reader
+                    // Since commits oly happen when an AsLockWriteGuard is dropped no reader
                     // will see this state.
                     assert_ne!(*table.read(), vec![2, 3, 4]);
                 }

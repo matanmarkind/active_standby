@@ -15,7 +15,7 @@ pub struct AsLock<T> {
     standby_table: AtomicPtr<RwLock<T>>,
 
     /// Log of operations to be performed on the second table. This gets played
-    /// on the standby table when creating a AsLockWriteGuard, as opposed to when
+    /// on the standby table when creating an AsLockWriteGuard, as opposed to when
     /// dropping it, to minimize lock contention. This is in the hopes that by
     /// waiting until the next time a `AsLockWriteGuard` is created, we give the
     /// readers time to switch to reading from the new `active_table`.
@@ -71,7 +71,7 @@ impl<T> AsLock<T> {
         unsafe { &*self.active_table.load(Ordering::SeqCst) }.read()
     }
 
-    /// Create a AsLockWriteGuard to allow users to update the the data. There will
+    /// Create an AsLockWriteGuard to allow users to update the the data. There will
     /// only be 1 AsLockWriteGuard at a time.
     ///
     /// This function may be slow because:
@@ -404,8 +404,8 @@ mod test {
         let aslock2 = Arc::clone(&aslock);
         let handler = thread::spawn(move || {
             while *aslock2.read() != vec![2, 3, 5] {
-                // Since commits oly happen when a AsLockWriteGuard is dropped no reader
-                // will see this state.
+                // Since commits oly happen when an AsLockWriteGuard is dropped
+                // no reader will see this state.
                 assert_ne!(*aslock2.read(), vec![2, 3, 4]);
             }
 
