@@ -65,11 +65,11 @@ pub type RwLockReadGuard<'r, T> = loom::sync::RwLockReadGuard<'r, T>;
 #[cfg(loom)]
 pub type RwLockWriteGuard<'w, T> = loom::sync::RwLockWriteGuard<'w, T>;
 #[cfg(not(loom))]
-pub type InnerRwLock<T> = std::sync::RwLock<T>;
+pub type InnerRwLock<T> = parking_lot::RwLock<T>;
 #[cfg(not(loom))]
-pub type RwLockReadGuard<'r, T> = std::sync::RwLockReadGuard<'r, T>;
+pub type RwLockReadGuard<'r, T> = parking_lot::RwLockReadGuard<'r, T>;
 #[cfg(not(loom))]
-pub type RwLockWriteGuard<'w, T> = std::sync::RwLockWriteGuard<'w, T>;
+pub type RwLockWriteGuard<'w, T> = parking_lot::RwLockWriteGuard<'w, T>;
 
 #[derive(Default)]
 pub struct RwLock<T> {
@@ -81,14 +81,14 @@ impl<T> RwLock<T> {
         #[cfg(loom)]
         return self.inner.read().unwrap();
         #[cfg(not(loom))]
-        return self.inner.read().unwrap();
+        return self.inner.read();
     }
 
     pub fn write(&self) -> RwLockWriteGuard<'_, T> {
         #[cfg(loom)]
         return self.inner.write().unwrap();
         #[cfg(not(loom))]
-        return self.inner.write().unwrap();
+        return self.inner.write();
     }
 
     pub fn new(t: T) -> RwLock<T> {
