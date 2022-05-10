@@ -3,7 +3,7 @@ use crate::primitives::UpdateTables;
 use std::ops::RangeBounds;
 
 // Define the functions that the active_standby vector will have. Note that we
-// only do this once, since both lockless & shared use the same UpdateTables
+// only do this once, since both lockless & sync use the same UpdateTables
 // trait.
 
 struct Push<T> {
@@ -335,10 +335,10 @@ pub mod lockless {
 }
 
 /// Implementation of Vec for use in the active_standby model.
-/// `shared::AsLock<T>`, should function similarly to `RwLock<Vec<T>>`.
-pub mod shared {
+/// `sync::AsLock<T>`, should function similarly to `RwLock<Vec<T>>`.
+pub mod sync {
     use super::*;
-    crate::generate_shared_aslock!(Vec<T>);
+    crate::generate_sync_aslock!(Vec<T>);
 
     impl<'w, T> AsLockWriteGuard<'w, T>
     where
@@ -850,7 +850,7 @@ mod lockless_test {
 }
 
 #[cfg(test)]
-mod shared_test {
+mod sync_test {
     use super::*;
     use crate::assert_tables_eq;
     use std::sync::Arc;
@@ -858,7 +858,7 @@ mod shared_test {
 
     #[test]
     fn push() {
-        let lock1 = Arc::new(shared::AsLock::<i32>::default());
+        let lock1 = Arc::new(sync::AsLock::<i32>::default());
         let lock2 = Arc::clone(&lock1);
         assert_eq!(lock1.read().len(), 0);
 
@@ -883,7 +883,7 @@ mod shared_test {
 
     #[test]
     fn clear() {
-        let table = Arc::new(shared::AsLock::<i32>::default());
+        let table = Arc::new(sync::AsLock::<i32>::default());
         assert_eq!(table.read().len(), 0);
 
         {
@@ -911,7 +911,7 @@ mod shared_test {
 
     #[test]
     fn pop() {
-        let table = Arc::new(shared::AsLock::<i32>::default());
+        let table = Arc::new(sync::AsLock::<i32>::default());
         {
             let mut wg = table.write();
             wg.push(2);
@@ -926,7 +926,7 @@ mod shared_test {
 
     #[test]
     fn append() {
-        let table = shared::AsLock::<i32>::default();
+        let table = sync::AsLock::<i32>::default();
         let mut other = vec![1, 2, 3];
         table.write().append(&mut other);
         assert!(other.is_empty());
@@ -935,7 +935,7 @@ mod shared_test {
 
     #[test]
     fn indirect_type() {
-        let table = shared::AsLock::<Box<i32>>::default();
+        let table = sync::AsLock::<Box<i32>>::default();
         table.write().push(Box::new(2));
         assert_tables_eq!(table, vec![Box::new(2)]);
     }
@@ -949,7 +949,7 @@ mod shared_test {
 
     #[test]
     fn reserve() {
-        let table = Arc::new(shared::AsLock::<i32>::default());
+        let table = Arc::new(sync::AsLock::<i32>::default());
         table.write().reserve(123);
 
         assert!(table.read().capacity() >= 123);
@@ -959,7 +959,7 @@ mod shared_test {
 
     #[test]
     fn reserve_exact() {
-        let table = Arc::new(shared::AsLock::<i32>::default());
+        let table = Arc::new(sync::AsLock::<i32>::default());
         table.write().reserve_exact(123);
 
         assert_eq!(table.read().capacity(), 123);
@@ -969,7 +969,7 @@ mod shared_test {
 
     // #[test]
     // fn try_reserve() {
-    //     let table = Arc::new(shared::AsLock::<i32>::default());
+    //     let table = Arc::new(sync::AsLock::<i32>::default());
     //     assert!(table.write().try_reserve(123).is_ok());
 
     //     assert!(table.read().capacity() >= 123);
@@ -979,7 +979,7 @@ mod shared_test {
 
     // #[test]
     // fn try_reserve_exact() {
-    //     let table = Arc::new(shared::AsLock::<i32>::default());
+    //     let table = Arc::new(sync::AsLock::<i32>::default());
     //     assert!(table.write().try_reserve_exact(123).is_ok());
 
     //     assert_eq!(table.read().capacity(), 123);
@@ -989,7 +989,7 @@ mod shared_test {
 
     #[test]
     fn shrink_to_fit() {
-        let table = Arc::new(shared::AsLock::<i32>::default());
+        let table = Arc::new(sync::AsLock::<i32>::default());
 
         {
             let mut wg = table.write();
@@ -1006,7 +1006,7 @@ mod shared_test {
 
     #[test]
     fn shrink_to() {
-        let table = shared::AsLock::<i32>::default();
+        let table = sync::AsLock::<i32>::default();
 
         {
             let mut wg = table.write();
@@ -1023,35 +1023,35 @@ mod shared_test {
 
     #[test]
     fn truncate() {
-        let table = shared::AsLock::<i32>::new(vec![0, 1, 2, 3, 4]);
+        let table = sync::AsLock::<i32>::new(vec![0, 1, 2, 3, 4]);
         table.write().truncate(3);
         assert_tables_eq!(table, vec![0, 1, 2]);
     }
 
     #[test]
     fn swap_remove() {
-        let table = shared::AsLock::<i32>::new(vec![0, 1, 2, 3, 4]);
+        let table = sync::AsLock::<i32>::new(vec![0, 1, 2, 3, 4]);
         assert_eq!(table.write().swap_remove(2), 2);
         assert_tables_eq!(table, vec![0, 1, 4, 3]);
     }
 
     #[test]
     fn remove() {
-        let table = shared::AsLock::<i32>::new(vec![0, 1, 2, 3, 4]);
+        let table = sync::AsLock::<i32>::new(vec![0, 1, 2, 3, 4]);
         assert_eq!(table.write().remove(2), 2);
         assert_tables_eq!(table, vec![0, 1, 3, 4]);
     }
 
     #[test]
     fn extend_from_within() {
-        let table = shared::AsLock::<i32>::new(vec![1, 2, 3]);
+        let table = sync::AsLock::<i32>::new(vec![1, 2, 3]);
         table.write().extend_from_within(1..);
         assert_tables_eq!(table, vec![1, 2, 3, 2, 3]);
     }
 
     #[test]
     fn insert() {
-        let table = Arc::new(shared::AsLock::<i32>::default());
+        let table = Arc::new(sync::AsLock::<i32>::default());
 
         {
             let mut wg = table.write();
@@ -1077,14 +1077,14 @@ mod shared_test {
 
     #[test]
     fn retain() {
-        let table = shared::AsLock::<i32>::new(vec![0, 1, 2, 3, 4]);
+        let table = sync::AsLock::<i32>::new(vec![0, 1, 2, 3, 4]);
         table.write().retain(|element| element % 2 == 0);
         assert_tables_eq!(table, vec![0, 2, 4]);
     }
 
     #[test]
     fn resize_with() {
-        let table = shared::AsLock::<i32>::new(vec![1, 2]);
+        let table = sync::AsLock::<i32>::new(vec![1, 2]);
         let mut i = 2;
         table.write().resize_with(4, move || {
             i += 1;
@@ -1095,56 +1095,56 @@ mod shared_test {
 
     #[test]
     fn sort_by() {
-        let table = shared::AsLock::new(vec![-5, 4, 1, -3, 2]);
+        let table = sync::AsLock::new(vec![-5, 4, 1, -3, 2]);
         table.write().sort_by(|a, b| a.partial_cmp(b).unwrap());
         assert_tables_eq!(table, vec![-5, -3, 1, 2, 4]);
     }
 
     #[test]
     fn sort() {
-        let table = shared::AsLock::new(vec![-5, 4, 1, -3, 2]);
+        let table = sync::AsLock::new(vec![-5, 4, 1, -3, 2]);
         table.write().sort();
         assert_tables_eq!(table, vec![-5, -3, 1, 2, 4]);
     }
 
     #[test]
     fn sort_unstable() {
-        let table = shared::AsLock::new(vec![-5, 4, 1, -3, 2]);
+        let table = sync::AsLock::new(vec![-5, 4, 1, -3, 2]);
         table.write().sort_unstable();
         assert_tables_eq!(table, vec![-5, -3, 1, 2, 4]);
     }
 
     #[test]
     fn dedup() {
-        let table = shared::AsLock::<i32>::new(vec![1, 1, 2, 3, 3, 2]);
+        let table = sync::AsLock::<i32>::new(vec![1, 1, 2, 3, 3, 2]);
         table.write().dedup();
         assert_tables_eq!(table, vec![1, 2, 3, 2]);
     }
 
     #[test]
     fn dedup_by_key() {
-        let table = shared::AsLock::<i32>::new(vec![1, 1, 2, 3, 3, 2]);
+        let table = sync::AsLock::<i32>::new(vec![1, 1, 2, 3, 3, 2]);
         table.write().dedup_by_key(|a| *a);
         assert_tables_eq!(table, vec![1, 2, 3, 2]);
     }
 
     #[test]
     fn dedup_by() {
-        let table = shared::AsLock::<i32>::new(vec![1, 1, 2, 3, 3, 2]);
+        let table = sync::AsLock::<i32>::new(vec![1, 1, 2, 3, 3, 2]);
         table.write().dedup_by(|a, b| a == b);
         assert_tables_eq!(table, vec![1, 2, 3, 2]);
     }
 
     #[test]
     fn drain() {
-        let table = shared::AsLock::<i32>::new(vec![0, 1, 2, 3, 4]);
+        let table = sync::AsLock::<i32>::new(vec![0, 1, 2, 3, 4]);
         assert_eq!(table.write().drain(1..4).collect::<Vec<_>>(), vec![1, 2, 3]);
         assert_tables_eq!(table, vec![0, 4]);
     }
 
     #[test]
     fn lifetimes() {
-        let table = shared::AsLock::<i32>::from_identical(vec![], vec![]);
+        let table = sync::AsLock::<i32>::from_identical(vec![], vec![]);
 
         {
             let mut wg = table.write();
@@ -1165,7 +1165,7 @@ mod shared_test {
 
     #[test]
     fn debug_str() {
-        let table = Arc::new(shared::AsLock::<i32>::default());
+        let table = Arc::new(sync::AsLock::<i32>::default());
         table.write().push(12);
 
         assert_eq!(
@@ -1181,7 +1181,7 @@ mod shared_test {
 
     #[test]
     fn update_tables_raw() {
-        let table = Arc::new(shared::AsLock::<i32>::default());
+        let table = Arc::new(sync::AsLock::<i32>::default());
         {
             table.write().update_tables(Push { value: 1 });
             table.write().update_tables(Push { value: 2 });

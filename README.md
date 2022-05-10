@@ -39,16 +39,16 @@ There are 2 flavors of this algorithm that we offer:
    going to access the tables register in advance. Therefore this centers around
    the `AsLockHandle`, which is conceptually similar to `Arc<RwLock>` (meaning a
    separate `AsLockHandle` per thread/task).
-2. Shared - this centers around using an `AsLock`, which is meant to feel like a
+2. Sync - this centers around using an `AsLock`, which is meant to feel like a
    `RwLock`. These structs can be shared between threads by cloning & sending an
    `Arc<AsLock>` (like with `RwLock`). The main difference is that instead of
-   using `AsLock<Vec<T>>`, you would use (e.g.) `vec::shared::AsLock<T>`. This
-   is because both tables must be updated, meaning users can't just dereference
+   using `AsLock<Vec<T>>`, you would use `vec::sync::AsLock<T>`. This is
+   because both tables must be updated, meaning users can't just dereference
    and mutate the underlying table, and so we provide a wrapper class.
 
-An example of where the shared variant can be preferable is a Tonic service.
+An example of where the sync variant can be preferable is a Tonic service.
 There you don't spawn a set of tasks/threads where you can pass each of them a
-`lockless::AsLockHandle`. You can use a `shared::AsLock` though.
+`lockless::AsLockHandle`. You can use a `sync::AsLock` though.
 
 We provide 2 modules:
 1. primitives - The components used to build data structures in the
@@ -56,8 +56,8 @@ We provide 2 modules:
    and can instead either utilize the pre-made collections, or generate the
    wrapper for their struct using one of the macros and then just implement the
    mutable API for the generated AsLockWriteGuard.
-2. collections - Shared and lockless active_standby structs for common
-   collections. Each table type has its own `AsLock` (shared) / `AsLockHandle`
+2. collections - Sync and lockless active_standby structs for common
+   collections. Each table type has its own `AsLock` (sync) and `AsLockHandle`
    (lockless), as opposed to `RwLock` where you simply pass in the table. This
    is because users can't simply gain write access to the underlying table and
    then mutate it. Instead mutations are done through UpdateTables so that both
@@ -92,8 +92,8 @@ pub mod lockless {
     }
 }
 
-pub mod shared {
-    active_standby::generate_shared_aslock!(i32);
+pub mod sync {
+    active_standby::generate_sync_aslock!(i32);
 
     impl<'w> AsLockWriteGuard<'w> {
         pub fn add_one(&mut self) {
@@ -118,8 +118,8 @@ fn run_lockless() {
     handle.join();
 }
 
-fn run_shared() {
-    let table = Arc::new(shared::AsLock::new(0));
+fn run_sync() {
+    let table = Arc::new(sync::AsLock::new(0));
     let table2 = Arc::clone(&table);
     let handle = std::thread::spawn(move || {
         while *table2.read().unwrap() != 1 {
@@ -136,7 +136,7 @@ fn run_shared() {
 
 fn main() {
     run_lockless();
-    run_shared();
+    run_sync();
 }
 ```
 

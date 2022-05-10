@@ -48,7 +48,7 @@ pub struct AsLockWriteGuard<'w, T> {
 }
 
 // Define AsLockReadGuard locally so that the type names are consistent; across
-// lockless & shared, as well as internally (AsLockWriteGuard & RwLockAsLockReadGuard
+// lockless & sync, as well as internally (AsLockWriteGuard & RwLockAsLockReadGuard
 // seem unwieldy).
 pub type AsLockReadGuard<'r, T> = RwLockReadGuard<'r, T>;
 
@@ -446,7 +446,7 @@ mod test {
             format!("{:?}", aslock),
             "AsLock { num_ops_to_replay: 1, standby_table: [2], active_table: [2] }"
         );
-        // The aliased shared lock shows up in this debug. What we mostly care
+        // The aliased sync lock shows up in this debug. What we mostly care
         // about is that this says AsLockReadGuard and shows the underlying data. It's
         // fine to update this if we ever change the underlying RwLock.
         assert_eq!(format!("{:?}", aslock.read()), "[2]");

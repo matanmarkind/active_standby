@@ -110,11 +110,11 @@ pub mod lockless {
 }
 
 /// Implementation of BtreeeMap for use in the active_standby model.
-/// `shared::AsLock<K, V>`, should function similarly to `RwLock<BTreeMap<K,
+/// `sync::AsLock<K, V>`, should function similarly to `RwLock<BTreeMap<K,
 /// V>>`.
-pub mod shared {
+pub mod sync {
     use super::*;
-    crate::generate_shared_aslock!(BTreeMap<K, V>);
+    crate::generate_sync_aslock!(BTreeMap<K, V>);
 
     impl<'w, K, V> AsLockWriteGuard<'w, K, V>
     where
@@ -301,7 +301,7 @@ mod lockless_test {
 }
 
 #[cfg(test)]
-mod shared_test {
+mod sync_test {
     use super::*;
     use crate::assert_tables_eq;
     use maplit::*;
@@ -314,7 +314,7 @@ mod shared_test {
             "world" => 2,
         };
 
-        let table = Arc::new(shared::AsLock::<&str, i32>::default());
+        let table = Arc::new(sync::AsLock::<&str, i32>::default());
         {
             let mut wg = table.write();
             wg.insert("hello", 1);
@@ -327,7 +327,7 @@ mod shared_test {
 
     #[test]
     fn clear() {
-        let table = Arc::new(shared::AsLock::<&str, i32>::default());
+        let table = Arc::new(sync::AsLock::<&str, i32>::default());
         {
             let mut wg = table.write();
             wg.insert("hello", 1);
@@ -346,7 +346,7 @@ mod shared_test {
             "hello" => 1,
         };
 
-        let table = Arc::new(shared::AsLock::<&str, i32>::default());
+        let table = Arc::new(sync::AsLock::<&str, i32>::default());
         {
             let mut wg = table.write();
             wg.insert("hello", 1);
@@ -364,7 +364,7 @@ mod shared_test {
             "hello" => 1,
         };
 
-        let table = Arc::new(shared::AsLock::<&str, i32>::default());
+        let table = Arc::new(sync::AsLock::<&str, i32>::default());
         {
             let mut wg = table.write();
             wg.insert("hello", 1);
@@ -385,7 +385,7 @@ mod shared_test {
             "joe" => 4,
         };
 
-        let table = Arc::new(shared::AsLock::<&str, i32>::default());
+        let table = Arc::new(sync::AsLock::<&str, i32>::default());
         {
             let map1 = btreemap! {
                 "hello" => 1,
@@ -406,7 +406,7 @@ mod shared_test {
 
     #[test]
     fn retain() {
-        let table = shared::AsLock::new(btreemap! {
+        let table = sync::AsLock::new(btreemap! {
             "hello" => 1,
             "world" => 2,
             "name's" => 3,
@@ -425,7 +425,7 @@ mod shared_test {
 
     #[test]
     fn debug_str() {
-        let table = Arc::new(shared::AsLock::<i32, i32>::default());
+        let table = Arc::new(sync::AsLock::<i32, i32>::default());
         {
             table.write().insert(12, -1);
         }

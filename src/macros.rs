@@ -150,9 +150,9 @@ macro_rules! generate_lockless_aslockhandle {
     }
 }
 
-/// Generates a shared::AsLock for the type passed in.
+/// Generates a sync::AsLock for the type passed in.
 #[macro_export]
-macro_rules! generate_shared_aslock {
+macro_rules! generate_sync_aslock {
     ( $Table:ident
         // Table might be a template type.
         $(<
@@ -165,7 +165,7 @@ macro_rules! generate_shared_aslock {
         // a type alias, clients would be blocked from creating impl blocks
         // outside of the active_standby crate.
         pub struct AsLockWriteGuard<'w, $($($Inner),*)?> {
-            guard: $crate::primitives::shared::AsLockWriteGuard<'w, $Table $(< $($Inner),* >)?>,
+            guard: $crate::primitives::sync::AsLockWriteGuard<'w, $Table $(< $($Inner),* >)?>,
         }
 
         // Allow the user to `update_tables` directly in case there is an interface missing.
@@ -205,7 +205,7 @@ macro_rules! generate_shared_aslock {
         }
 
         type AsLockAlias$(< $($Inner),* >)? =
-            $crate::primitives::shared::AsLock<$Table $(< $($Inner),* >)? >;
+            $crate::primitives::sync::AsLock<$Table $(< $($Inner),* >)? >;
 
         // AsLock needs to be a new struct, because we need to "override" the
         // inner call to 'write' so that it will produce the new AsLockWriteGuard
@@ -283,7 +283,7 @@ macro_rules! generate_shared_aslock {
 ///    table, which confirms that reads to both tables match the
 ///    expectation/receive the updates.
 ///
-/// Works for both shared::AsLock & lockless::AsLockHandle since they have the
+/// Works for both sync::AsLock & lockless::AsLockHandle since they have the
 /// same interface.
 #[macro_export]
 macro_rules! assert_tables_eq {

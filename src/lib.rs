@@ -41,17 +41,17 @@
 //!    going to access the tables register in advance. Therefore this centers
 //!    around the `AsLockHandle`, which is conceptually similar to `Arc<RwLock>`
 //!    (meaning a separate `AsLockHandle` per thread/task).
-//! 2. Shared - this centers around using an `AsLock`, which is meant to feel
+//! 2. Sync - this centers around using an `AsLock`, which is meant to feel
 //!    like a `RwLock`. These structs can be shared between threads by cloning &
 //!    sending an `Arc<AsLock>` (like with `RwLock`). The main difference is
 //!    that instead of using `AsLock<Vec<T>>`, you would use (e.g.)
-//!    `vec::shared::AsLock<T>`. This is because both tables must be updated,
+//!    `vec::sync::AsLock<T>`. This is because both tables must be updated,
 //!    meaning users can't just dereference and mutate the underlying table, and
 //!    so we provide a wrapper class.
 //!
-//! An example of where the shared variant can be preferable is a Tonic service.
+//! An example of where the sync variant can be preferable is a Tonic service.
 //! There you don't spawn a set of tasks/threads where you can pass each of them
-//! a `lockless::AsLockHandle`. You can use a `shared::AsLock` though.
+//! a `lockless::AsLockHandle`. You can use a `sync::AsLock` though.
 //!
 //! We provide 2 modules:
 //! 1. primitives - The components used to build data structures in the
@@ -59,8 +59,8 @@
 //!    primitives and can instead either utilize the pre-made collections, or
 //!    generate the wrapper for their struct using one of the macros and then
 //!    just implement the mutable API for the generated AsLockWriteGuard.
-//! 2. collections - Shared and lockless active_standby structs for common
-//!    collections. Each table type has its own `AsLock` (shared) /
+//! 2. collections - Sync and lockless active_standby structs for common
+//!    collections. Each table type has its own `AsLock` (sync) /
 //!    `AsLockHandle` (lockless), as opposed to `RwLock` where you simply pass
 //!    in the table. This is because users can't simply gain write access to the
 //!    underlying table and then mutate it. Instead mutations are done through
@@ -95,8 +95,8 @@
 //!     }
 //! }
 //!
-//! pub mod shared {
-//!     active_standby::generate_shared_aslock!(i32);
+//! pub mod sync {
+//!     active_standby::generate_sync_aslock!(i32);
 //!
 //!     impl<'w> AsLockWriteGuard<'w> {
 //!         pub fn add_one(&mut self) {
@@ -121,8 +121,8 @@
 //!     handle.join();
 //! }
 //!
-//! fn run_shared() {
-//!     let table = Arc::new(shared::AsLock::new(0));
+//! fn run_sync() {
+//!     let table = Arc::new(sync::AsLock::new(0));
 //!     let table2 = Arc::clone(&table);
 //!     let handle = std::thread::spawn(move || {
 //!         while *table2.read() != 1 {
@@ -139,7 +139,7 @@
 //!
 //! fn main() {
 //!     run_lockless();
-//!     run_shared();
+//!     run_sync();
 //! }
 //! ```
 //!
@@ -156,7 +156,7 @@
 //! ```rust
 //! use std::sync::Arc;
 //! use active_standby::primitives::UpdateTables;
-//! use active_standby::primitives::shared::AsLock;
+//! use active_standby::primitives::sync::AsLock;
 //!
 //! struct UpdateVal {
 //!     index: usize,
@@ -206,7 +206,7 @@ mod macros;
 pub(crate) mod types;
 
 mod lockless;
-mod shared;
+mod sync;
 
 /// The components used to build data structures in the active_standby model.
 /// Users should usually don't need to utilize the primitives and can instead
@@ -218,17 +218,17 @@ pub mod primitives {
     pub mod lockless {
         pub use crate::lockless::aslockhandle::{AsLockHandle, AsLockReadGuard, AsLockWriteGuard};
     }
-    pub mod shared {
-        pub use crate::shared::aslock::{AsLock, AsLockReadGuard, AsLockWriteGuard};
+    pub mod sync {
+        pub use crate::sync::aslock::{AsLock, AsLockReadGuard, AsLockWriteGuard};
         pub use crate::types::RwLock;
     }
 }
 
-/// Shared and lockless active_standby structs for common collections. The data
+/// Sync and lockless active_standby structs for common collections. The data
 /// structures within should allow for the user to interact with these as if
 /// they were using an RwLock.
 ///
-/// Each table type has its own AsLock (shared) / AsLockHandle (lockless), as
+/// Each table type has its own AsLock (sync) / AsLockHandle (lockless), as
 /// opposed to RwLock where you simply pass in the table. This is because users
 /// can't simply gain write access to the underlying table and then mutate it.
 /// Instead mutations are done through UpdateTables so that both tables will be

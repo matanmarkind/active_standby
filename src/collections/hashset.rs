@@ -142,10 +142,10 @@ pub mod lockless {
 }
 
 /// Implementation of HashSet for use in the active_standby model.
-/// `shared::AsLock<T>`, should function similarly to `RwLock<HashSet<T>>`.
-pub mod shared {
+/// `sync::AsLock<T>`, should function similarly to `RwLock<HashSet<T>>`.
+pub mod sync {
     use super::*;
-    crate::generate_shared_aslock!(HashSet<T>);
+    crate::generate_sync_aslock!(HashSet<T>);
 
     impl<'w, 'a, T> AsLockWriteGuard<'w, T>
     where
@@ -340,7 +340,7 @@ mod lockless_test {
 }
 
 #[cfg(test)]
-mod shared_test {
+mod sync_test {
     use super::*;
     use crate::assert_tables_eq;
     use maplit::*;
@@ -354,14 +354,14 @@ mod shared_test {
             "world",
         };
 
-        let table = shared::AsLock::new(expected.clone());
+        let table = sync::AsLock::new(expected.clone());
         table.write().replace("world");
         assert_tables_eq!(table, expected);
     }
 
     #[test]
     fn clear() {
-        let table = Arc::new(shared::AsLock::new(hashset! {
+        let table = Arc::new(sync::AsLock::new(hashset! {
             "hello" ,
             "world",
         }));
@@ -378,7 +378,7 @@ mod shared_test {
             "hello",
         };
 
-        let table = shared::AsLock::<&str>::new(std::collections::HashSet::new());
+        let table = sync::AsLock::<&str>::new(std::collections::HashSet::new());
         {
             let mut wg = table.write();
             wg.insert("hello");
@@ -394,7 +394,7 @@ mod shared_test {
 
     #[test]
     fn shrink_to_fit_and_reserve() {
-        let table = shared::AsLock::<&str>::from_identical(
+        let table = sync::AsLock::<&str>::from_identical(
             std::collections::HashSet::new(),
             std::collections::HashSet::new(),
         );
@@ -417,7 +417,7 @@ mod shared_test {
 
     #[test]
     fn retain() {
-        let table = shared::AsLock::new(hashset! {
+        let table = sync::AsLock::new(hashset! {
             "hello",
             "world",
             "my",
@@ -444,7 +444,7 @@ mod shared_test {
             "world",
         };
 
-        let table = shared::AsLock::new(expected.clone());
+        let table = sync::AsLock::new(expected.clone());
         assert_eq!(
             table
                 .write()
@@ -460,7 +460,7 @@ mod shared_test {
 
     #[test]
     fn debug_str() {
-        let table = shared::AsLock::<i32>::default();
+        let table = sync::AsLock::<i32>::default();
         table.write().insert(12);
 
         assert_eq!(

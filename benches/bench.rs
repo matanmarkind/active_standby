@@ -18,7 +18,7 @@
 // https://doc.rust-lang.org/nightly/edition-guide/rust-2018/module-system/path-clarity.html
 extern crate test;
 use active_standby::primitives::lockless::AsLockHandle;
-use active_standby::primitives::shared::RwLock;
+use active_standby::primitives::sync::RwLock;
 use active_standby::primitives::UpdateTables;
 use more_asserts::*;
 use std::sync::Arc;
@@ -56,8 +56,8 @@ pub mod lockless {
     }
 }
 
-pub mod shared {
-    active_standby::generate_shared_aslock!(i32);
+pub mod sync {
+    active_standby::generate_sync_aslock!(i32);
 
     impl<'w> AsLockWriteGuard<'w> {
         pub fn add_one(&mut self) {
@@ -110,8 +110,8 @@ mod benchmarks {
         });
     }
     #[bench]
-    fn shared_wguard_without_rcontention(b: &mut test::bench::Bencher) {
-        let table = Arc::new(shared::AsLock::new(1));
+    fn sync_wguard_without_rcontention(b: &mut test::bench::Bencher) {
+        let table = Arc::new(sync::AsLock::new(1));
         b.iter(|| {
             let mut wg = table.write();
             wg.add_one();
@@ -158,8 +158,8 @@ mod benchmarks {
         });
     }
     #[bench]
-    fn shared_wguard_rw_contention(b: &mut test::bench::Bencher) {
-        let table = Arc::new(shared::AsLock::new(1));
+    fn sync_wguard_rw_contention(b: &mut test::bench::Bencher) {
+        let table = Arc::new(sync::AsLock::new(1));
 
         let _reader_handles: Vec<_> = (0..10)
             .map(|_| {
@@ -232,8 +232,8 @@ mod benchmarks {
         });
     }
     #[bench]
-    fn shared_rguard_no_contention(b: &mut test::bench::Bencher) {
-        let table = Arc::new(shared::AsLock::new(1));
+    fn sync_rguard_no_contention(b: &mut test::bench::Bencher) {
+        let table = Arc::new(sync::AsLock::new(1));
 
         b.iter(|| {
             let rg = table.read();
@@ -243,7 +243,7 @@ mod benchmarks {
 
     // The following section is the main thing we are interested in; how does
     // retreiving a read guard to the tables scale with lots of other readers
-    // and an active writer. The tests compare 3 cases: lockless v. shared v.
+    // and an active writer. The tests compare 3 cases: lockless v. sync v.
     // plain RwLock.
     //
     // Tests for all cases are grouped together.
@@ -282,8 +282,8 @@ mod benchmarks {
         });
     }
 
-    fn shared_rguard_rw_contention(b: &mut test::bench::Bencher, num_readers: u32) {
-        let aslock = Arc::new(shared::AsLock::new(1));
+    fn sync_rguard_rw_contention(b: &mut test::bench::Bencher, num_readers: u32) {
+        let aslock = Arc::new(sync::AsLock::new(1));
         let _reader_handles: Vec<_> = (0..num_readers)
             .map(|_| {
                 let aslock = Arc::clone(&aslock);
@@ -365,20 +365,20 @@ mod benchmarks {
     }
 
     #[bench]
-    fn shared_rguard_rw_contention_1(b: &mut test::bench::Bencher) {
-        shared_rguard_rw_contention(b, 1);
+    fn sync_rguard_rw_contention_1(b: &mut test::bench::Bencher) {
+        sync_rguard_rw_contention(b, 1);
     }
     #[bench]
-    fn shared_rguard_rw_contention_10(b: &mut test::bench::Bencher) {
-        shared_rguard_rw_contention(b, 10);
+    fn sync_rguard_rw_contention_10(b: &mut test::bench::Bencher) {
+        sync_rguard_rw_contention(b, 10);
     }
     #[bench]
-    fn shared_rguard_rw_contention_20(b: &mut test::bench::Bencher) {
-        shared_rguard_rw_contention(b, 20);
+    fn sync_rguard_rw_contention_20(b: &mut test::bench::Bencher) {
+        sync_rguard_rw_contention(b, 20);
     }
     #[bench]
-    fn shared_rguard_rw_contention_30(b: &mut test::bench::Bencher) {
-        shared_rguard_rw_contention(b, 30);
+    fn sync_rguard_rw_contention_30(b: &mut test::bench::Bencher) {
+        sync_rguard_rw_contention(b, 30);
     }
 
     #[bench]

@@ -125,10 +125,10 @@ pub mod lockless {
 }
 
 /// Implementation of BTreeSet for use in the active_standby model.
-/// `shared::AsLock<T>`, should function similarly to `RwLock<BTreeSet<T>>`.
-pub mod shared {
+/// `sync::AsLock<T>`, should function similarly to `RwLock<BTreeSet<T>>`.
+pub mod sync {
     use super::*;
-    crate::generate_shared_aslock!(BTreeSet<T>);
+    crate::generate_sync_aslock!(BTreeSet<T>);
 
     impl<'w, T> AsLockWriteGuard<'w, T>
     where
@@ -298,7 +298,7 @@ mod lockless_test {
 }
 
 #[cfg(test)]
-mod shared_test {
+mod sync_test {
     use super::*;
     use crate::assert_tables_eq;
     use maplit::*;
@@ -311,7 +311,7 @@ mod shared_test {
             "world",
         };
 
-        let table = Arc::new(shared::AsLock::<&str>::default());
+        let table = Arc::new(sync::AsLock::<&str>::default());
         {
             let mut wg = table.write();
             wg.insert("hello");
@@ -323,7 +323,7 @@ mod shared_test {
 
     #[test]
     fn clear() {
-        let table = shared::AsLock::<&str>::default();
+        let table = sync::AsLock::<&str>::default();
         {
             let mut wg = table.write();
             wg.insert("hello");
@@ -341,7 +341,7 @@ mod shared_test {
         let expected = btreeset! {
             "hello",
         };
-        let table = shared::AsLock::<&str>::default();
+        let table = sync::AsLock::<&str>::default();
         {
             let mut wg = table.write();
             wg.insert("hello");
@@ -364,7 +364,7 @@ mod shared_test {
             "joe",
         };
 
-        let table = shared::AsLock::<&str>::default();
+        let table = sync::AsLock::<&str>::default();
         {
             let map1 = btreeset! {
                 "hello",
@@ -384,7 +384,7 @@ mod shared_test {
 
     #[test]
     fn retain() {
-        let table = shared::AsLock::new(btreeset! {
+        let table = sync::AsLock::new(btreeset! {
             "hello",
             "world",
             "name's",
@@ -401,7 +401,7 @@ mod shared_test {
 
     #[test]
     fn debug_str() {
-        let table = shared::AsLock::<i32>::default();
+        let table = sync::AsLock::<i32>::default();
         {
             table.write().insert(12);
         }

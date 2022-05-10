@@ -44,11 +44,11 @@ struct TableAndEpoch<T> {
 type ReadersList<T> = Arc<Mutex<Slab<Arc<TableAndEpoch<T>>>>>;
 
 /// Interface used to gain non-blocking read access to one of the tables. One
-/// per thread/task, not meant to be shared.
+/// per thread/task, not meant to be sync.
 struct Reader<T> {
     // This readers state. Put behind an Arc since it is shared with the Writer
     // which must update the table on swap and read the epoch to synchronize.
-    shared_state: Arc<TableAndEpoch<T>>,
+    sync_state: Arc<TableAndEpoch<T>>,
 
     // Used to remove self from `readers` on drop.
     key_in_readers: usize,
@@ -135,7 +135,7 @@ impl<T> Reader<T> {
     /// 3. AtomicPtr load to the table.
     pub fn read(&self) -> AsLockReadGuard<'_, T> {
         // 1. Load the shared state.
-        let TableAndEpoch { table, epoch } = &*self.shared_state;
+        let TableAndEpoch { table, epoch } = &*self.sync_state;
 
         // 2. Lock the active table.
         let old_epoch = epoch.load(Ordering::Acquire);
@@ -228,14 +228,14 @@ impl<T> Writer<T> {
     pub fn new_reader(&mut self) -> Reader<T> {
         let readers = Arc::clone(&self.readers);
 
-        let shared_state = Arc::new(TableAndEpoch {
+        let sync_state = Arc::new(TableAndEpoch {
             table: AtomicPtr::new(self.active_table.as_mut() as *mut T),
             epoch: AtomicUsize::new(0),
         });
-        let key_in_readers = readers.lock().insert(Arc::clone(&shared_state));
+        let key_in_readers = readers.lock().insert(Arc::clone(&sync_state));
 
         Reader {
-            shared_state,
+            sync_state,
             key_in_readers,
             readers,
         }

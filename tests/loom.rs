@@ -7,7 +7,7 @@
 #[cfg(test)]
 mod loom_tests {
     use active_standby::primitives::lockless::AsLockHandle;
-    use active_standby::primitives::shared::AsLock;
+    use active_standby::primitives::sync::AsLock;
     use active_standby::primitives::UpdateTables;
     use loom::sync::{Arc, Condvar, LockResult, Mutex, MutexGuard};
     use loom::thread;
@@ -77,7 +77,7 @@ mod loom_tests {
     }
 
     #[test]
-    fn shared_single_thread() {
+    fn sync_single_thread() {
         loom::model(|| {
             let table = Arc::new(AsLock::<i32>::new(1));
             {
@@ -168,7 +168,7 @@ mod loom_tests {
     }
 
     #[test]
-    fn shared_multi_thread() {
+    fn sync_multi_thread() {
         loom::model(|| {
             let table = Arc::new(AsLock::<i32>::new(1));
             {
