@@ -64,6 +64,9 @@ pub type InnerRwLock<T> = loom::sync::RwLock<T>;
 pub type RwLockReadGuard<'r, T> = loom::sync::RwLockReadGuard<'r, T>;
 #[cfg(loom)]
 pub type RwLockWriteGuard<'w, T> = loom::sync::RwLockWriteGuard<'w, T>;
+
+// TODO(https://github.com/Amanieu/parking_lot/issues/323): Convert to
+// parking_lot::RwLock.
 #[cfg(not(loom))]
 pub type InnerRwLock<T> = std::sync::RwLock<T>;
 #[cfg(not(loom))]
@@ -81,14 +84,20 @@ impl<T> RwLock<T> {
         #[cfg(loom)]
         return self.inner.read().unwrap();
         #[cfg(not(loom))]
-        return self.inner.read().unwrap();
+        return match self.inner.read() {
+            Ok(mtx) => mtx,
+            Err(mtx) => mtx.into_inner(),
+        };
     }
 
     pub fn write(&self) -> RwLockWriteGuard<'_, T> {
         #[cfg(loom)]
         return self.inner.write().unwrap();
         #[cfg(not(loom))]
-        return self.inner.write().unwrap();
+        return match self.inner.write() {
+            Ok(mtx) => mtx,
+            Err(mtx) => mtx.into_inner(),
+        };
     }
 
     pub fn new(t: T) -> RwLock<T> {

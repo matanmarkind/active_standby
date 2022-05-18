@@ -73,36 +73,10 @@ pub mod sync {
 mod benchmarks {
     use super::*;
 
-    // Updating a plain atomic bool gives a reference point for what kind of
-    // speeds atomics can achieve. Gives some perspective on the cost we are
-    // adding/what a lower bound could be.
-    #[bench]
-    fn plain_atomicbool(b: &mut test::bench::Bencher) {
-        use std::sync::atomic::{AtomicBool, Ordering};
-        use std::sync::Arc;
-
-        let ref1 = Arc::new(AtomicBool::new(false));
-        let ref2 = Arc::clone(&ref1);
-
-        std::thread::spawn(move || loop {
-            ref1.store(!ref1.load(Ordering::SeqCst), Ordering::SeqCst);
-        });
-
-        b.iter(|| {
-            let val = ref2.load(Ordering::SeqCst);
-            let n = test::black_box(true);
-            if val == n {
-                assert_eq!(val, true);
-            } else {
-                assert_eq!(val, false);
-            }
-        });
-    }
-
     // Test the speed of acquiring write guards when it never has to wait on
     // readers to release the table.
     #[bench]
-    fn lockless_wguard_without_rcontention(b: &mut test::bench::Bencher) {
+    fn wguard_without_rcontention_lockless(b: &mut test::bench::Bencher) {
         let table = AsLockHandle::<i32>::from_identical(1, 1);
         b.iter(|| {
             let mut wg = table.write();
@@ -110,7 +84,7 @@ mod benchmarks {
         });
     }
     #[bench]
-    fn sync_wguard_without_rcontention(b: &mut test::bench::Bencher) {
+    fn wguard_without_rcontention_sync(b: &mut test::bench::Bencher) {
         let table = Arc::new(sync::AsLock::new(1));
         b.iter(|| {
             let mut wg = table.write();
@@ -118,7 +92,7 @@ mod benchmarks {
         });
     }
     #[bench]
-    fn rwlock_wguard_without_rcontention(b: &mut test::bench::Bencher) {
+    fn wguard_without_rcontention_rwlock(b: &mut test::bench::Bencher) {
         let table = Arc::new(RwLock::new(1));
         b.iter(|| {
             let mut wg = table.write();
@@ -127,7 +101,7 @@ mod benchmarks {
     }
 
     #[bench]
-    fn lockless_wguard_rw_contention(b: &mut test::bench::Bencher) {
+    fn wguard_rw_contention_lockless(b: &mut test::bench::Bencher) {
         let table = lockless::AsLockHandle::new(1);
 
         let _reader_handles: Vec<_> = (0..10)
@@ -158,7 +132,7 @@ mod benchmarks {
         });
     }
     #[bench]
-    fn sync_wguard_rw_contention(b: &mut test::bench::Bencher) {
+    fn wguard_rw_contention_sync(b: &mut test::bench::Bencher) {
         let table = Arc::new(sync::AsLock::new(1));
 
         let _reader_handles: Vec<_> = (0..10)
@@ -189,7 +163,7 @@ mod benchmarks {
         });
     }
     #[bench]
-    fn rwlock_wguard_rw_contention(b: &mut test::bench::Bencher) {
+    fn wguard_rw_contention_rwlock(b: &mut test::bench::Bencher) {
         let table = Arc::new(RwLock::new(1));
 
         let _reader_handles: Vec<_> = (0..10)
@@ -223,7 +197,7 @@ mod benchmarks {
     // Test the speed of acquiring the AsLockReadGuard when the writer never takes a guard
     // are there are no other readers.
     #[bench]
-    fn lockless_rguard_no_contention(b: &mut test::bench::Bencher) {
+    fn rguard_no_contention_lockless(b: &mut test::bench::Bencher) {
         let table = AsLockHandle::<i32>::from_identical(1, 1);
 
         b.iter(|| {
@@ -232,7 +206,7 @@ mod benchmarks {
         });
     }
     #[bench]
-    fn sync_rguard_no_contention(b: &mut test::bench::Bencher) {
+    fn rguard_no_contention_sync(b: &mut test::bench::Bencher) {
         let table = Arc::new(sync::AsLock::new(1));
 
         b.iter(|| {
@@ -248,7 +222,7 @@ mod benchmarks {
     //
     // Tests for all cases are grouped together.
     // - num read threads: {1, 10, 20, 30}
-    fn lockless_rguard_rw_contention(b: &mut test::bench::Bencher, num_readers: u32) {
+    fn rguard_rw_contention_lockless(b: &mut test::bench::Bencher, num_readers: u32) {
         let table = lockless::AsLockHandle::from_identical(1, 1);
 
         let _reader_handles: Vec<_> = (0..num_readers)
@@ -282,7 +256,7 @@ mod benchmarks {
         });
     }
 
-    fn sync_rguard_rw_contention(b: &mut test::bench::Bencher, num_readers: u32) {
+    fn rguard_rw_contention_sync(b: &mut test::bench::Bencher, num_readers: u32) {
         let aslock = Arc::new(sync::AsLock::new(1));
         let _reader_handles: Vec<_> = (0..num_readers)
             .map(|_| {
@@ -314,7 +288,7 @@ mod benchmarks {
         });
     }
 
-    fn rwlock_rguard_rw_contention(b: &mut test::bench::Bencher, num_readers: u32) {
+    fn rguard_rw_contention_rwlock(b: &mut test::bench::Bencher, num_readers: u32) {
         let table = Arc::new(RwLock::new(1));
         let _reader_handles: Vec<_> = (0..num_readers)
             .map(|_| {
@@ -348,53 +322,41 @@ mod benchmarks {
     }
 
     #[bench]
-    fn lockless_rguard_rw_contention_1(b: &mut test::bench::Bencher) {
-        lockless_rguard_rw_contention(b, 1);
+    fn rguard_rw_contention_lockless_10(b: &mut test::bench::Bencher) {
+        rguard_rw_contention_lockless(b, 10);
     }
     #[bench]
-    fn lockless_rguard_rw_contention_10(b: &mut test::bench::Bencher) {
-        lockless_rguard_rw_contention(b, 10);
+    fn rguard_rw_contention_lockless_20(b: &mut test::bench::Bencher) {
+        rguard_rw_contention_lockless(b, 20);
     }
     #[bench]
-    fn lockless_rguard_rw_contention_20(b: &mut test::bench::Bencher) {
-        lockless_rguard_rw_contention(b, 20);
-    }
-    #[bench]
-    fn lockless_rguard_rw_contention_30(b: &mut test::bench::Bencher) {
-        lockless_rguard_rw_contention(b, 30);
+    fn rguard_rw_contention_lockless_30(b: &mut test::bench::Bencher) {
+        rguard_rw_contention_lockless(b, 30);
     }
 
     #[bench]
-    fn sync_rguard_rw_contention_1(b: &mut test::bench::Bencher) {
-        sync_rguard_rw_contention(b, 1);
+    fn rguard_rw_contention_sync_10(b: &mut test::bench::Bencher) {
+        rguard_rw_contention_sync(b, 10);
     }
     #[bench]
-    fn sync_rguard_rw_contention_10(b: &mut test::bench::Bencher) {
-        sync_rguard_rw_contention(b, 10);
+    fn rguard_rw_contention_sync_20(b: &mut test::bench::Bencher) {
+        rguard_rw_contention_sync(b, 20);
     }
     #[bench]
-    fn sync_rguard_rw_contention_20(b: &mut test::bench::Bencher) {
-        sync_rguard_rw_contention(b, 20);
-    }
-    #[bench]
-    fn sync_rguard_rw_contention_30(b: &mut test::bench::Bencher) {
-        sync_rguard_rw_contention(b, 30);
+    fn rguard_rw_contention_sync_30(b: &mut test::bench::Bencher) {
+        rguard_rw_contention_sync(b, 30);
     }
 
     #[bench]
-    fn rwlock_rguard_rw_contention_1(b: &mut test::bench::Bencher) {
-        rwlock_rguard_rw_contention(b, 1);
+    fn rguard_rw_contention_rwlock_10(b: &mut test::bench::Bencher) {
+        rguard_rw_contention_rwlock(b, 10);
     }
     #[bench]
-    fn rwlock_rguard_rw_contention_10(b: &mut test::bench::Bencher) {
-        rwlock_rguard_rw_contention(b, 10);
+    fn rguard_rw_contention_rwlock_20(b: &mut test::bench::Bencher) {
+        rguard_rw_contention_rwlock(b, 20);
     }
     #[bench]
-    fn rwlock_rguard_rw_contention_20(b: &mut test::bench::Bencher) {
-        rwlock_rguard_rw_contention(b, 20);
-    }
-    #[bench]
-    fn rwlock_rguard_rw_contention_30(b: &mut test::bench::Bencher) {
-        rwlock_rguard_rw_contention(b, 30);
+    fn rguard_rw_contention_rwlock_30(b: &mut test::bench::Bencher) {
+        rguard_rw_contention_rwlock(b, 30);
     }
 }
