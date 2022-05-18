@@ -2,6 +2,11 @@ use crate::types::*;
 use std::fmt;
 use std::mem::ManuallyDrop;
 
+// When `update_tables` is called, the `standby_table` is updated immediately.
+// We then store the update ops to be replayed on the other table.
+type OpsToReplay<T> = Mutex<Vec<Box<dyn FnOnce(&mut T) + Send>>>;
+type OpsToReplayGuard<'w, T> = MutexGuard<'w, Vec<Box<dyn FnOnce(&mut T) + Send>>>;
+
 /// Struct for holding tables that can be interacted with like an RwLock,
 /// including being shared across threads/tasks via Arc (as opposed to the
 /// lockless version which requires independent copies per thread/task).
@@ -22,7 +27,7 @@ pub struct AsLock<T> {
     ///
     /// This mutex is used to guarantee that `write` is single threaded, and so
     /// locking it must be done before any operation other that `read`.
-    ops_to_replay: Mutex<Vec<Box<dyn FnOnce(&mut T) + Send>>>,
+    ops_to_replay: OpsToReplay<T>,
 }
 
 /// Guard used for updating the tables.
@@ -44,7 +49,7 @@ pub struct AsLockWriteGuard<'w, T> {
     // Hold onto updates for replay when the next AsLockWriteGuard is created. This
     // Mutex also prevents any other thread from utilizing the `AsLock`, other
     // than calls to `read`.
-    ops_to_replay: MutexGuard<'w, Vec<Box<dyn FnOnce(&mut T) + Send>>>,
+    ops_to_replay: OpsToReplayGuard<'w, T>,
 }
 
 // Define AsLockReadGuard locally so that the type names are consistent; across
@@ -104,7 +109,7 @@ impl<T> AsLock<T> {
             guard: ManuallyDrop::new(wg),
             active_table: &self.active_table,
             standby_table: &self.standby_table,
-            ops_to_replay: ops_to_replay,
+            ops_to_replay,
         }
     }
 }
@@ -271,7 +276,7 @@ mod test {
 
     struct PopVec {}
     impl PopVec {
-        fn apply<'a, T>(&mut self, table: &'a mut Vec<T>) -> Option<T> {
+        fn apply<T>(&mut self, table: &mut Vec<T>) -> Option<T> {
             table.pop()
         }
     }

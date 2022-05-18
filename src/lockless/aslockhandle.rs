@@ -162,7 +162,7 @@ impl<T> Reader<T> {
         let active_table = unsafe { &*table.load(Ordering::SeqCst) };
         AsLockReadGuard {
             active_table,
-            epoch: &epoch,
+            epoch,
         }
     }
 }
@@ -519,7 +519,7 @@ mod test {
 
     struct PopVec {}
     impl PopVec {
-        fn apply<'a, T>(&mut self, table: &'a mut Vec<T>) -> Option<T> {
+        fn apply<T>(&mut self, table: &mut Vec<T>) -> Option<T> {
             table.pop()
         }
     }
@@ -561,7 +561,7 @@ mod test {
         // proceed it is not defined how exactly the failure will occur, so we
         // cannot expect a panic as this may deadlock and hang.
         //
-        // let wg2 = table.write().unwrap();
+        // let wg2 = table.write();
     }
 
     #[test]
@@ -652,7 +652,7 @@ mod test {
 
                 // Show multiple readers in multiple threads.
                 let handler = {
-                    let table = table.clone();
+                    let table = table;
                     thread::spawn(move || while *table.read() != vec![2, 3, 5] {})
                 };
                 assert!(handler.join().is_ok());

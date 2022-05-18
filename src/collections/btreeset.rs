@@ -226,7 +226,7 @@ mod lockless_test {
             wg.insert("hello");
             wg.insert("world");
             wg.insert("I");
-            assert_eq!(wg.remove("world"), true);
+            assert!(wg.remove("world"));
             assert_eq!(wg.take("I"), Some("I"));
             assert_eq!(wg.take("I"), None);
             assert_eq!(*wg, expected);
@@ -347,7 +347,7 @@ mod sync_test {
             wg.insert("hello");
             wg.insert("world");
             wg.insert("I");
-            assert_eq!(wg.remove("world"), true);
+            assert!(wg.remove("world"));
             assert_eq!(wg.take("I"), Some("I"));
             assert_eq!(wg.take("I"), None);
             assert_eq!(*wg, expected);

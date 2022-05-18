@@ -26,7 +26,7 @@ use std::sync::Arc;
 struct AddOne {}
 impl<'a> UpdateTables<'a, i32, ()> for AddOne {
     fn apply_first(&mut self, table: &'a mut i32) {
-        *table = *table + 1;
+        *table += 1;
     }
     fn apply_second(mut self, table: &mut i32) {
         self.apply_first(table);

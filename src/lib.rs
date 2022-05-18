@@ -5,8 +5,7 @@
 //!   write locked, so readers never face contention.
 //! - Standby - this is the table that the writers mutate. A writer should face
 //!   minimal contention retrieving this table since Readers move to the Active
-//!   table whenever calling `.read()`, so the only contention is long lived
-//!   AsLockReadGuards.
+//!   table whenever calling `.read()`.
 //!
 //! There are 2 ways to use this crate:
 //! 1. Direct interaction with AsLock. This is highly flexible since users can
@@ -92,6 +91,7 @@
 //! // Client's should implement the mutable interface that they want to offer users
 //! // of their active standby data structure. This is not automatically generated.
 //! struct AddOne {}
+//!
 //! impl<'a> UpdateTables<'a, i32, ()> for AddOne {
 //!     fn apply_first(&mut self, table: &'a mut i32) {
 //!         *table = *table + 1;
@@ -172,6 +172,7 @@
 //!     index: usize,
 //!     val: Arc<i32>
 //! }
+//!
 //! impl<'a> UpdateTables<'a, Vec<Arc<i32>>, ()> for UpdateVal {
 //!     // Mutate the tables, not the values they point to.
 //!     fn apply_first(&mut self, table: &'a mut Vec<Arc<i32>>) {

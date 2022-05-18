@@ -5,30 +5,25 @@ This library is named after the 2 (identical) tables that are held internally:
   write locked, so readers never face contention.
 - Standby - this is the table that the writers mutate. A writer should face
   minimal contention retrieving this table since Readers move to the Active
-  table whenever calling `.read()`, so the only contention is long lived
-  AsLockReadGuards.
+  table whenever calling `.read()`.
 
 There are 2 ways to use this crate:
-1. Direct interaction with AsLock. This is highly flexible since users can
-   pass in any struct they want. All updates though, will need to be done by
-   passing a function, in order to update both tables (`UpdateTables` trait).
+1. Direct interaction with AsLock. This is more flexible since users can pass
+   in any struct they want and mutate it however they choose. All updates
+   though, will need to be done by passing a function instead of via mutable
+   methods (`UpdateTables` trait).
 2. Using collections which are built out of the primitives but which provide an
    API similar to RwLock<T>; writers can directly call to methods without
    having to provide a mutator function.
 
 There are 2 flavors:
 1. Lockless - this variant trades off increased performance against changing the
-   API to be less like a `RwLock`. This avoids the cost of performing
-   synchronization on reads, but this requires that each thread/task that is
-   going to access the tables register in advance. Therefore this centers around
-   the `AsLockHandle`, which is conceptually similar to `Arc<RwLock>` (meaning a
-   separate `AsLockHandle` per thread/task).
+   API to be less like a `RwLock`. This centers around the `AsLockHandle`, which
+   is conceptually similar to `Arc<RwLock>` (meaning a separate `AsLockHandle`
+   per thread/task).
 2. Sync - this centers around using an `AsLock`, which is meant to feel like a
-   `RwLock`. These structs can be shared between threads by cloning & sending an
-   `Arc<AsLock>` (like with `RwLock`). The main difference is that instead of
-   using `AsLock<Vec<T>>`, you would use `vec::sync::AsLock<T>`. This is
-   because both tables must be updated, meaning users can't just dereference
-   and mutate the underlying table, and so we provide a wrapper class.
+   `RwLock`. The main difference is that you still cannot gain direct write
+   access to the underlying table due to the need to keep them identical.
 
 The cost of minimizing contention is:
 1. Memory - Internally there are 2 copies of the underlying type the user
@@ -92,6 +87,7 @@ use active_standby::primitives::UpdateTables;
 // Client's should implement the mutable interface that they want to offer users
 // of their active standby data structure. This is not automatically generated.
 struct AddOne {}
+
 impl<'a> UpdateTables<'a, i32, ()> for AddOne {
     fn apply_first(&mut self, table: &'a mut i32) {
         *table = *table + 1;
@@ -172,6 +168,7 @@ struct UpdateVal {
     index: usize,
     val: Arc<i32>
 }
+
 impl<'a> UpdateTables<'a, Vec<Arc<i32>>, ()> for UpdateVal {
     // Mutate the tables, not the values they point to.
     fn apply_first(&mut self, table: &'a mut Vec<Arc<i32>>) {
