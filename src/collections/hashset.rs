@@ -1,4 +1,4 @@
-use crate::primitives::UpdateTables;
+use crate::UpdateTables;
 use std::borrow::Borrow;
 use std::collections::HashSet;
 use std::hash::Hash;

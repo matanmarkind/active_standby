@@ -120,7 +120,7 @@ impl<T> RwLock<T> {
 /// to the table's internals. E.g:
 ///
 ///```rust
-/// # use active_standby::primitives::UpdateTables;
+/// # use active_standby::UpdateTables;
 /// struct MutableRef {}
 ///
 /// impl<'a, T> UpdateTables<'a, Vec<T>, &'a mut T> for MutableRef {

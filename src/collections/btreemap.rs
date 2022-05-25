@@ -1,4 +1,4 @@
-use crate::primitives::UpdateTables;
+use crate::UpdateTables;
 use std::collections::BTreeMap;
 
 struct Insert<K, V> {

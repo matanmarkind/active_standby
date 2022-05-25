@@ -6,9 +6,9 @@
 #[cfg(loom)]
 #[cfg(test)]
 mod loom_tests {
-    use active_standby::primitives::lockless::AsLockHandle;
-    use active_standby::primitives::sync::AsLock;
-    use active_standby::primitives::UpdateTables;
+    use active_standby::lockless::AsLockHandle;
+    use active_standby::sync::AsLock;
+    use active_standby::UpdateTables;
     use loom::sync::{Arc, Condvar, LockResult, Mutex, MutexGuard};
     use loom::thread;
 

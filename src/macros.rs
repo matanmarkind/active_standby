@@ -16,15 +16,12 @@
 /// create interfaces (per container), which wrap the calls to `update_tables`
 /// and allows for a UI much like a plain RwLock.
 ///
-/// This macro is valid for templated types, it doesn't have to be concrete. The
-/// macro can't handle paths, so you can't pass 'std::collections::HashMap'. In
-/// such a case just put the `use` statement right before the macro invocation.
+/// This macro is valid for templated types. The macro can't handle paths, so
+/// you can't pass 'std::collections::HashMap'. In such a case just put the
+/// `use` statement in the module.
 ///
-/// For a simple example check out crate level docs or bench.rs. For larger
-/// examples, check out collections.
-///
-/// TODO: Is there some way to get all of the mutable methods of Table and
-/// automatically generate `UpdateTables` wrappers for them?
+// TODO: Is there some way to get all of the mutable methods of Table and
+// automatically generate `UpdateTables` wrappers for them?
 
 /// Generates a lockless::AsLockHandle for the type passed in.
 #[macro_export]
@@ -41,14 +38,14 @@ macro_rules! generate_lockless_aslockhandle {
         // a type alias, clients would be blocked from creating impl blocks
         // outside of the active_standby crate.
         pub struct AsLockWriteGuard<'w, $($($Inner),*)?> {
-            guard: $crate::primitives::lockless::AsLockWriteGuard<'w, $Table $(< $($Inner),* >)?>,
+            guard: $crate::lockless::AsLockWriteGuard<'w, $Table $(< $($Inner),* >)?>,
         }
 
         // Allow the user to `update_tables` directly in case there is an interface missing.
         impl<'w, $($($Inner),*)?> AsLockWriteGuard<'w, $($($Inner),*)?> {
             pub fn update_tables<'a, R>(
                 &'a mut self,
-                update: impl $crate::primitives::UpdateTables<'a, $Table$(< $($Inner),* >)?, R> + 'static + Sized + Send,
+                update: impl $crate::UpdateTables<'a, $Table$(< $($Inner),* >)?, R> + 'static + Sized + Send,
             ) -> R {
                 self.guard.update_tables(update)
             }
@@ -81,7 +78,7 @@ macro_rules! generate_lockless_aslockhandle {
         }
 
         type AsLockHandleAlias$(< $($Inner),* >)? =
-            $crate::primitives::lockless::AsLockHandle<$Table $(< $($Inner),* >)? >;
+            $crate::lockless::AsLockHandle<$Table $(< $($Inner),* >)? >;
 
         // AsLockHandle needs to be a new struct, because we need to "override"
         // the inner call to 'write' so that it will produce the new AsLockWriteGuard
@@ -150,6 +147,21 @@ macro_rules! generate_lockless_aslockhandle {
     }
 }
 
+/// These macros automatically generates an easy to use interface for
+/// interacting with an ActiveStandby data structure. Note that this is done for
+/// each underlying table, as opposed to an RwLock which is generic over all
+/// underlying types.
+///
+/// Using the plain AsLockHandle/AsLock requires users to call to the
+/// `update_tables` interface as oppossed to an RwLock which lets users directly
+/// mutate their desired table. Using these macros allows client libraries to
+/// create interfaces (per container), which wrap the calls to `update_tables`
+/// and allows for a UI much like a plain RwLock.
+///
+/// This macro is valid for templated types. The macro can't handle paths, so
+/// you can't pass 'std::collections::HashMap'. In such a case just put the
+/// `use` statement in the module.
+///
 /// Generates a sync::AsLock for the type passed in.
 #[macro_export]
 macro_rules! generate_sync_aslock {
@@ -165,14 +177,14 @@ macro_rules! generate_sync_aslock {
         // a type alias, clients would be blocked from creating impl blocks
         // outside of the active_standby crate.
         pub struct AsLockWriteGuard<'w, $($($Inner),*)?> {
-            guard: $crate::primitives::sync::AsLockWriteGuard<'w, $Table $(< $($Inner),* >)?>,
+            guard: $crate::sync::AsLockWriteGuard<'w, $Table $(< $($Inner),* >)?>,
         }
 
         // Allow the user to `update_tables` directly in case there is an interface missing.
         impl<'w, $($($Inner),*)?> AsLockWriteGuard<'w, $($($Inner),*)?> {
             pub fn update_tables<'a, R>(
                 &'a mut self,
-                update: impl $crate::primitives::UpdateTables<'a, $Table$(< $($Inner),* >)?, R> + 'static + Sized + Send,
+                update: impl $crate::UpdateTables<'a, $Table$(< $($Inner),* >)?, R> + 'static + Sized + Send,
             ) -> R {
                 self.guard.update_tables(update)
             }
@@ -205,7 +217,7 @@ macro_rules! generate_sync_aslock {
         }
 
         type AsLockAlias$(< $($Inner),* >)? =
-            $crate::primitives::sync::AsLock<$Table $(< $($Inner),* >)? >;
+            $crate::sync::AsLock<$Table $(< $($Inner),* >)? >;
 
         // AsLock needs to be a new struct, because we need to "override" the
         // inner call to 'write' so that it will produce the new AsLockWriteGuard
@@ -273,23 +285,16 @@ macro_rules! generate_sync_aslock {
     }
 }
 
-/// Testing convenience for checking that tables hold the expected value. The
-/// test works as follows:
-/// 1. assert_eq!(AsLockReadGuard, expected) - basic check
-/// 2. assert_eq!(AsLockWriteGuard, expected) - this triggers replaying the ops on the
-///    second table and seeing that it is updated appropriately and that the
-///    AsLockWriteGuard's view matches the expectation.
-/// 3. assert_eq!(AsLockReadGuard, expected) - This should be a read of the other
-///    table, which confirms that reads to both tables match the
-///    expectation/receive the updates.
-///
-/// Works for both sync::AsLock & lockless::AsLockHandle since they have the
-/// same interface.
+/// Check that both tables equal the expected value.
 #[macro_export]
 macro_rules! assert_tables_eq {
     ($table:expr, $expected:expr) => {
         assert_eq!(*$table.read(), $expected);
+        // Triggers replaying the ops on the second table and seeing that it
+        // is updated appropriately and that the AsLockWriteGuard's view
+        // matches the expectation.
         assert_eq!(*$table.write(), $expected);
+        // Check read from the second table.
         assert_eq!(*$table.read(), $expected);
     };
 }
