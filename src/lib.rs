@@ -35,50 +35,45 @@
 //!    will drop.
 //!
 //! ### Example
-//! This example builds a toy collection, wrapping the active_standby struct
-//! in a familiar RwLock interface. For more examples check out the source code
-//! of the exported collections.
+//! Example of the 3 usage patters: build your own wrapper, use prebuilt
+//! collections, and use the primitives (`AsLock`/`AsLockHandle`). Each of
+//! these applies to both sync and lockless.
 //! ```rust
 //! use std::thread::sleep;
 //! use std::time::Duration;
 //! use std::sync::Arc;
-//! use active_standby::UpdateTables;
 //!
-//! // Client's should implement the mutable interface that they want to offer users
-//! // of their active standby data structure. This is not automatically generated.
-//! struct AddOne {}
 //!
-//! impl<'a> UpdateTables<'a, i32, ()> for AddOne {
-//!     fn apply_first(&mut self, table: &'a mut i32) {
-//!         *table = *table + 1;
-//!     }
-//!     fn apply_second(mut self, table: &mut i32) {
-//!         self.apply_first(table);
-//!     }
-//! }
+//! // Create wrapper class so that users can interact with the active_standby
+//! // struct via a RwLock-like interface. See the implementation of the
+//! // collections for more examples.
+//! mod wrapper {
+//!     use active_standby::UpdateTables;
 //!
-//! pub mod lockless {
 //!     active_standby::generate_lockless_aslockhandle!(i32);
 //!
+//!     struct AddOne {}
+//!
+//!     impl<'a> UpdateTables<'a, i32, ()> for AddOne {
+//!         fn apply_first(&mut self, table: &'a mut i32) {
+//!             *table = *table + 1;
+//!         }
+//!         fn apply_second(mut self, table: &mut i32) {
+//!             self.apply_first(table);
+//!         }
+//!     }
+//!
+//!     // Client's must implement the mutable interface that they want to
+//!     // offer users. Non mutable functions are automatic via Deref.
 //!     impl<'w> AsLockWriteGuard<'w> {
 //!         pub fn add_one(&mut self) {
-//!             self.guard.update_tables(super::AddOne {})
+//!             self.guard.update_tables(AddOne {})
 //!         }
 //!     }
 //! }
 //!
-//! pub mod sync {
-//!     active_standby::generate_sync_aslock!(i32);
-//!
-//!     impl<'w> AsLockWriteGuard<'w> {
-//!         pub fn add_one(&mut self) {
-//!             self.guard.update_tables(super::AddOne {})
-//!         }
-//!     }
-//! }
-//!
-//! fn run_lockless() {
-//!     let table = lockless::AsLockHandle::new(0);
+//! pub fn run_wrapper() {
+//!     let table = wrapper::AsLockHandle::new(0);
 //!     let table2 = table.clone();
 //!
 //!     let handle = std::thread::spawn(move || {
@@ -91,23 +86,51 @@
 //!     handle.join();
 //! }
 //!
-//! fn run_sync() {
-//!     let table = Arc::new(sync::AsLock::new(0));
+//! // Use a premade collection which wraps `AsLock<Vec<T>>`, to provide an
+//! // interface akin to `RwLock<Vec<T>>`.
+//! pub fn run_collection() {
+//!     use active_standby::sync::collections::AsVec as AsVec;
+//!     let table = Arc::new(AsVec::default());
 //!     let table2 = Arc::clone(&table);
 //!
 //!     let handle = std::thread::spawn(move || {
-//!         while *table2.read() != 1 {
+//!         while *table2.read() != vec![1] {
 //!             sleep(Duration::from_micros(100));
 //!         }
 //!     });
 //!
-//!     table.write().add_one();
+//!     table.write().push(1);
+//!     handle.join();
+//! }
+//!
+//! // Use the raw AsLock interface to update the underlying data.
+//! pub fn run_primitive() {
+//!     use active_standby::sync::AsLock;
+//!
+//!     // If the entries in your table are large, you may want to hold only
+//!     // 1 copy shared by both tables. This is safe so long as you never
+//!     // mutate the shared data; only remove and replace it in the table.
+//!     let table = Arc::new(AsLock::new(vec![Arc::new(1)]));
+//!     let table2 = Arc::clone(&table);
+//!
+//!     let handle = std::thread::spawn(move || {
+//!         while *table2.read() != vec![Arc::new(2)] {
+//!             sleep(Duration::from_micros(100));
+//!         }
+//!     });
+//!
+//!     table.write().update_tables_closure(|table| {
+//!         // Update the value in the table, not the shared one behind the 
+//!         // Arc.
+//!         table[0] = Arc::new(2);
+//!     });
 //!     handle.join();
 //! }
 //!
 //! fn main() {
-//!     run_lockless();
-//!     run_sync();
+//!     run_wrapper();
+//!     run_collection();
+//!     run_primitive();
 //! }
 //! ```
 //!
