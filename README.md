@@ -3,23 +3,23 @@ A library for high concurrency reads.
 This library is named after the 2 (identical) tables that are held internally:
 - Active - this is the table that all Readers view. This table will never be
   write locked, so readers never face contention.
-- Standby - this is the table that the writers mutate. A writer should face
-  minimal contention retrieving this table since Readers move to the Active
-  table whenever calling `.read()`.
+- Standby - this is the table that writers mutate. A writer should face minimal
+  contention retrieving this table since Readers move to the Active table
+  whenever calling `.read()`.
 
 There are 2 ways to use this crate:
-1. Direct interaction with AsLock. This is more flexible since users can pass
-   in any struct they want and mutate it however they choose. All updates
-   though, will need to be done by passing a function instead of via mutable
-   methods (`UpdateTables` trait).
+1. Direct interaction with `AsLock`/`AsLockHandle`. This is more flexible 
+   since users can pass in any struct they want and mutate it however they
+   choose. All updates though, will need to be done by passing a function
+   instead of via mutable methods (`UpdateTables` trait).
 2. Using collections which are built out of the primitives but which provide an
-   API similar to RwLock<T>; writers can directly call to methods without
+   API similar to `RwLock<T>`; writers can directly call to methods without
    having to provide a mutator function.
 
 There are 2 flavors/modules:
 1. Lockless - this variant trades off increased performance against changing the
    API to be less like a `RwLock`. This centers around the `AsLockHandle`, which
-   is conceptually similar to `Arc<RwLock>` (meaning a separate `AsLockHandle`
+   is conceptually similar to `Arc<RwLock>` (requires a separate `AsLockHandle`
    per thread/task).
 2. Sync - this centers around using an `AsLock`, which is meant to feel like a
    `RwLock`. The main difference is that you still cannot gain direct write
@@ -36,13 +36,12 @@ The cost of minimizing contention is:
 
 ### Example
 Example of the 3 usage patters: build your own wrapper, use prebuilt
-collections, and use the primitives (`AsLock`/`AsLockHandle`). Each of
-these applies to both sync and lockless.
+collections, and use the primitives. Each of these can be done with both sync
+and lockless.
 ```rust
 use std::thread::sleep;
 use std::time::Duration;
 use std::sync::Arc;
-
 
 // Create wrapper class so that users can interact with the active_standby
 // struct via a RwLock-like interface. See the implementation of the
@@ -89,7 +88,8 @@ pub fn run_wrapper() {
 // Use a premade collection which wraps `AsLock<Vec<T>>`, to provide an
 // interface akin to `RwLock<Vec<T>>`.
 pub fn run_collection() {
-    use active_standby::sync::collections::AsVec as AsVec;
+    use active_standby::sync::collections::AsVec;
+
     let table = Arc::new(AsVec::default());
     let table2 = Arc::clone(&table);
 
@@ -120,7 +120,7 @@ pub fn run_primitive() {
     });
 
     table.write().update_tables_closure(|table| {
-        // Update the value in the table, not the shared one behind the 
+        // Update the entry in the table, not the shared value behind the
         // Arc.
         table[0] = Arc::new(2);
     });

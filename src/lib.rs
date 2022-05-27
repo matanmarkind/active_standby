@@ -3,17 +3,17 @@
 //! This library is named after the 2 (identical) tables that are held internally:
 //! - Active - this is the table that all Readers view. This table will never be
 //!   write locked, so readers never face contention.
-//! - Standby - this is the table that the writers mutate. A writer should face
+//! - Standby - this is the table that writers mutate. A writer should face
 //!   minimal contention retrieving this table since Readers move to the Active
 //!   table whenever calling `.read()`.
 //!
 //! There are 2 ways to use this crate:
-//! 1. Direct interaction with AsLock. This is more flexible since users can pass
-//!    in any struct they want and mutate it however they choose. All updates
-//!    though, will need to be done by passing a function instead of via mutable
-//!    methods (`UpdateTables` trait).
+//! 1. Direct interaction with `AsLock`/`AsLockHandle`. This is more flexible 
+//!    since users can pass in any struct they want and mutate it however they
+//!    choose. All updates though, will need to be done by passing a function
+//!    instead of via mutable methods (`UpdateTables` trait).
 //! 2. Using collections which are built out of the primitives but which provide an
-//!    API similar to RwLock<T>; writers can directly call to methods without
+//!    API similar to `RwLock<T>`; writers can directly call to methods without
 //!    having to provide a mutator function.
 //!
 //! There are 2 flavors/modules:
@@ -35,14 +35,13 @@
 //!    will drop.
 //!
 //! ### Example
-//! Example of the 3 usage patters: build your own wrapper, use prebuilt
-//! collections, and use the primitives (`AsLock`/`AsLockHandle`). Each of
-//! these applies to both sync and lockless.
+//! Example of the 3 usage patterns: build your own wrapper, use prebuilt
+//! collections, and use the primitives. Each of these can be done with both
+//! sync and lockless.
 //! ```rust
 //! use std::thread::sleep;
 //! use std::time::Duration;
 //! use std::sync::Arc;
-//!
 //!
 //! // Create wrapper class so that users can interact with the active_standby
 //! // struct via a RwLock-like interface. See the implementation of the
@@ -89,7 +88,8 @@
 //! // Use a premade collection which wraps `AsLock<Vec<T>>`, to provide an
 //! // interface akin to `RwLock<Vec<T>>`.
 //! pub fn run_collection() {
-//!     use active_standby::sync::collections::AsVec as AsVec;
+//!     use active_standby::sync::collections::AsVec;
+//! 
 //!     let table = Arc::new(AsVec::default());
 //!     let table2 = Arc::clone(&table);
 //!
@@ -120,7 +120,7 @@
 //!     });
 //!
 //!     table.write().update_tables_closure(|table| {
-//!         // Update the value in the table, not the shared one behind the 
+//!         // Update the entry in the table, not the shared value behind the
 //!         // Arc.
 //!         table[0] = Arc::new(2);
 //!     });
@@ -163,10 +163,6 @@ pub mod lockless {
     /// model. This allows for the API to match RwLock<T> while under the hood
     /// the active standby model works its magic. AsLockReadGuard is generic
     /// since only writes require a special API for active_standby.
-    ///
-    /// To see the mutable interface of a given collection, check out the
-    /// `*WriteGuard` exposed here. Following the linked `AsLockWriteGuard`
-    /// will bring you to the generic one for all structs.
     pub mod collections {
         // Inline the re-export to make rustdocs more readable.
         #[doc(inline)]
@@ -198,10 +194,6 @@ pub mod sync {
     /// model. This allows for the API to match RwLock<T> while under the hood
     /// the active standby model works its magic. AsLockReadGuard is generic
     /// since only writes require a special API for active_standby.
-    ///
-    /// To see the mutable interface of a given collection, check out the
-    /// `*WriteGuard` exposed here. Following the linked `AsLockWriteGuard`
-    /// will bring you to the generic one for all structs.
     pub mod collections {
         // Inline the re-export to make rustdocs more readable.
         #[doc(inline)]
