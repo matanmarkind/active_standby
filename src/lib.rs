@@ -19,7 +19,7 @@
 //! There are 2 flavors/modules:
 //! 1. Lockless - this variant trades off increased performance against changing the
 //!    API to be less like a `RwLock`. This centers around the `AsLockHandle`, which
-//!    is conceptually similar to `Arc<RwLock>` (meaning a separate `AsLockHandle`
+//!    is conceptually similar to `Arc<RwLock>` (requires a separate `AsLockHandle`
 //!    per thread/task).
 //! 2. Sync - this centers around using an `AsLock`, which is meant to feel like a
 //!    `RwLock`. The main difference is that you still cannot gain direct write
