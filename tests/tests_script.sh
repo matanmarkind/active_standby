@@ -31,7 +31,11 @@ echo_and_run RUSTFLAGS=\"-Zsanitizer=thread -g\" cargo +nightly bench \
 echo_and_run RUSTFLAGS=\"-Zsanitizer=thread -g\" cargo +nightly test --lib \
     --release --quiet -Z build-std --target x86_64-unknown-linux-gnu
 
+echo_and_run RUSTFLAGS=\"-Zsanitizer=address -g\" cargo +nightly test --lib \
+    --release --quiet -Z build-std --target x86_64-unknown-linux-gnu
+
 # Miri specifies it should be cleaned beforehand.
-echo_and_run cargo clean && cargo +nightly miri test --quiet
+echo_and_run cargo clean
+echo_and_run cargo +nightly miri test --quiet
 
 echo_and_run cargo +nightly bench --quiet
