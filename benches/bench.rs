@@ -21,7 +21,7 @@ use active_standby::lockless::AsLockHandle;
 use active_standby::UpdateTables;
 use more_asserts::*;
 use std::sync::Arc;
-use std::sync::RwLock;
+use parking_lot::RwLock;
 
 struct AddOne {}
 impl<'a> UpdateTables<'a, i32, ()> for AddOne {
@@ -95,7 +95,7 @@ mod benchmarks {
     fn wguard_without_rcontention_rwlock(b: &mut test::bench::Bencher) {
         let table = Arc::new(RwLock::new(1));
         b.iter(|| {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             *wg += 1;
         });
     }
@@ -171,7 +171,7 @@ mod benchmarks {
                 let table = Arc::clone(&table);
                 std::thread::spawn(move || {
                     // Continually grab read guards.
-                    while *table.read().unwrap() != 0 {
+                    while *table.read() != 0 {
                         // Hold the read guards to increase the chance of read
                         // 'contention'.
                         std::thread::sleep(std::time::Duration::from_micros(10));
@@ -183,13 +183,13 @@ mod benchmarks {
         let _writer_handle = {
             let table = Arc::clone(&table);
             std::thread::spawn(move || loop {
-                let mut wg = table.write().unwrap();
+                let mut wg = table.write();
                 *wg += 1;
             })
         };
 
         b.iter(|| {
-            let mut wg = table.write().unwrap();
+            let mut wg = table.write();
             *wg += 1;
         });
     }
@@ -295,7 +295,7 @@ mod benchmarks {
                 let table = Arc::clone(&table);
                 std::thread::spawn(move || {
                     // Continually grab read guards.
-                    while *table.read().unwrap() != 0 {
+                    while *table.read() != 0 {
                         // Hold the read guards to increase the change of read
                         // 'contention'.
                         std::thread::sleep(std::time::Duration::from_micros(100));
@@ -308,7 +308,7 @@ mod benchmarks {
             .map(|_| {
                 let table = Arc::clone(&table);
                 std::thread::spawn(move || loop {
-                    let mut wg = table.write().unwrap();
+                    let mut wg = table.write();
                     std::thread::sleep(std::time::Duration::from_micros(100));
                     *wg += 1;
                 })
@@ -316,7 +316,7 @@ mod benchmarks {
             .collect();
 
         b.iter(|| {
-            let rg = table.read().unwrap();
+            let rg = table.read();
             assert_gt!(*rg, 0);
         });
     }
