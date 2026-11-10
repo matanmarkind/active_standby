@@ -17,13 +17,24 @@ There are 2 ways to use this crate:
    having to provide a mutator function.
 
 There are 2 flavors/modules:
-1. Lockless - this variant trades off increased performance against changing the
-   API to be less like a `RwLock`. This centers around the `AsLockHandle`, which
-   is conceptually similar to `Arc<RwLock>` (requires a separate `AsLockHandle`
-   per thread/task).
-2. Sync - this centers around using an `AsLock`, which is meant to feel like a
-   `RwLock`. The main difference is that you still cannot gain direct write
-   access to the underlying table due to the need to keep them identical.
+1. Lockless - the performance variant. This centers around the `AsLockHandle`,
+   which is conceptually similar to `Arc<RwLock>`, but requires a separate
+   `AsLockHandle` per thread/task (it is `Send` but not `Sync`), and reads are
+   not reentrant. In exchange, readers share no writable memory, so read
+   throughput scales with the number of cores.
+2. Sync - the convenience variant. This centers around using an `AsLock`, which
+   is `Sync` and is meant to feel like a `RwLock`: put it in an `Arc` (or a
+   `static`) and call `read()` from anywhere. Use this when you can't pass a
+   handle to each thread/task. Like lockless, reads never block on a writer,
+   but each read is a `RwLock` read lock on a shared table, so under heavy
+   concurrent reading it scales like a plain `RwLock`. You still cannot gain
+   direct write access to the underlying table due to the need to keep them
+   identical.
+
+The `rguard_spinning_readers_*` benchmarks show the difference: with other
+threads reading nonstop, a lockless read stays in the tens of nanoseconds, while
+sync and `RwLock` reads slow down as more cores contend on the same lock word.
+See `benches/records/` for numbers.
 
 The cost of minimizing contention is:
 1. Memory - Internally there are 2 copies of the underlying type the user
