@@ -31,10 +31,28 @@ There are 2 flavors/modules:
    direct write access to the underlying table due to the need to keep them
    identical.
 
-The `rguard_spinning_readers_*` benchmarks show the difference: with other
-threads reading nonstop, a lockless read stays in the tens of nanoseconds, while
-sync and `RwLock` reads slow down as more cores contend on the same lock word.
-See `benches/records/` for numbers.
+The benchmarks show the difference. Each runs N background threads reading
+nonstop (16-core x86_64, see `benches/records/bench-2_1_0.txt`).
+
+`rguard_*`: time to take a read guard, with 1 more thread writing nonstop:
+
+| N readers | lockless | sync   | `parking_lot::RwLock` |
+|-----------|----------|--------|-----------------------|
+| 1         | 22 ns    | 134 ns | 217 ns                |
+| 6         | 18 ns    | 889 ns | 2.3 µs                |
+| 14        | 14 ns    | 2.4 µs | 7.5 µs                |
+
+`wguard_*`: time to take a write guard and apply an update (single writer):
+
+| N readers | lockless | sync   | `parking_lot::RwLock` |
+|-----------|----------|--------|-----------------------|
+| 1         | 250 ns   | 134 ns | 53 ns                 |
+| 6         | 1.1 µs   | 1.1 µs | 490 ns                |
+| 14        | 4.2 µs   | 5.2 µs | 4.9 µs                |
+
+Lockless reads stay flat as readers are added, and sync reads stay ahead of a
+plain `RwLock` since they never wait on the writer. The price is paid by the
+writer, which must wait for readers to leave the table it is about to update.
 
 The cost of minimizing contention is:
 1. Memory - Internally there are 2 copies of the underlying type the user

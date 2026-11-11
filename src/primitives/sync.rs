@@ -68,12 +68,32 @@ impl<T> AsLock<T> {
         }
     }
 
+    /// Obtain a read guard to the active table. This never blocks on a writer.
     pub fn read(&self) -> AsLockReadGuard<'_, T> {
-        // SAFETY: The safety issue here is active_table being an invalid ptr.
-        // This should never happen since standby/active table are created on
-        // creation and only dropped when AsLock is dropped. In between they are
-        // swapped, but that shouldn't affect their valididty as pointers.
-        unsafe { &*self.active_table.load(Ordering::SeqCst) }.read()
+        loop {
+            // SAFETY: The safety issue here is active_table being an invalid
+            // ptr. This should never happen since standby/active table are
+            // created on creation and only dropped when AsLock is dropped. In
+            // between they are swapped, but that shouldn't affect their
+            // valididty as pointers.
+            let table = unsafe { &*self.active_table.load(Ordering::SeqCst) };
+
+            // Loading the pointer and locking the table are not atomic. Between
+            // them a writer may swap the tables and then write lock the table we
+            // loaded (now the standby table). Using `read` here would block
+            // until that write finished. Instead use `try_read`, which only fails
+            // when the table is (or is about to be) write locked, which can only
+            // happen to the standby table. In that case the table we loaded is
+            // stale, so reload the new active table and try again.
+            //
+            // Each retry requires a writer to have swapped the tables since the
+            // last load, so readers make progress unless writers continuously
+            // complete writes in that tiny window (lock-free, not wait-free).
+            if let Some(guard) = table.try_read() {
+                return guard;
+            }
+            spin_loop();
+        }
     }
 
     /// Create an AsLockWriteGuard to allow users to update the the data. There will
